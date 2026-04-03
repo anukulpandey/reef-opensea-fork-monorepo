@@ -1,0 +1,25 @@
+{
+  "name": "reef-opensea-fork-monorepo",
+  "private": true,
+  "version": "0.1.0",
+  "packageManager": "npm@10.9.4",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "contracts:build": "forge build --root packages/contracts --use $(which solc)",
+    "contracts:deploy:reef": "bash packages/contracts/script/deploy_reef.sh",
+    "api:dev": "npm run dev --workspace @reef/api",
+    "api:build": "npm run build --workspace @reef/api",
+    "web:dev": "npm run dev --workspace @reef/web",
+    "web:build": "npm run build --workspace @reef/web",
+    "build": "npm run api:build && npm run web:build",
+    "smoke:routes": "bash scripts/smoke-routes.sh",
+    "docker:up": "docker compose up --build -d",
+    "docker:down": "docker compose down",
+    "docker:logs": "docker compose logs -f",
+    "stack:up": "docker compose up --build -d",
+    "stack:down": "docker compose down"
+  }
+}

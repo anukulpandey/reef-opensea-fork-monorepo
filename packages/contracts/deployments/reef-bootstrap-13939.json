@@ -1,0 +1,12 @@
+{
+  "chainId": 13939,
+  "rpcUrl": "http://34.123.142.246:8545",
+  "deployer": "0x212e2A4545ee7AC59837212F9860DbC245090B6f",
+  "conduitController": "0xEC163d04A56A4592D9EbFBF42aE9eb5aB5161F0E",
+  "seaport": "0x8fC9Fe992499cDAa7dF14025f3ADaE385272D8C4",
+  "mode": "standard",
+  "verified": false,
+  "conduitControllerDeploymentTx": "0x9ea7cd01f7a5b87783a595368846e3712e1c82f514cedee4d98e5e0961cae515",
+  "seaportDeploymentTx": "0xcf50a5a7878e50125755f6da4eb49b7fb075c09bc03f43943a61e09c3b79e340",
+  "note": "Attempted on 2026-04-03. Reef returned status=1 receipts for both CREATE transactions, but eth_getCode stayed 0x for the resulting addresses."
+}

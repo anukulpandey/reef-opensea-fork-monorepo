@@ -1,0 +1,139 @@
+{
+  "site": {
+    "name": "OpenSea",
+    "tagline": "exchange everything",
+    "description": "A dark OpenSea-style desktop marketplace demo backed by Reef-local data, Seaport references, and compose-managed services.",
+    "supportEmail": "support@opensea.local",
+    "themeMode": "opensea-dark",
+    "nav": [
+      { "label": "Discover", "href": "/" },
+      { "label": "Collections", "href": "/collections" },
+      { "label": "Tokens", "href": "/tokens" },
+      { "label": "Swap", "href": "/swap" },
+      { "label": "Drops", "href": "/drops" },
+      { "label": "Activity", "href": "/activity" },
+      { "label": "Rewards", "href": "/rewards", "gated": true },
+      { "label": "Studio", "href": "/studio", "gated": true },
+      { "label": "Profile", "href": "/profile", "gated": true }
+    ],
+    "sidebarNav": [
+      { "label": "Home", "href": "/", "icon": "opensea" },
+      { "label": "Discover", "href": "/", "icon": "compass" },
+      { "label": "Collections", "href": "/collections", "icon": "grid" },
+      { "label": "Tokens", "href": "/tokens", "icon": "rings" },
+      { "label": "Activity", "href": "/activity", "icon": "activity" },
+      { "label": "Drops", "href": "/drops", "icon": "calendar" },
+      { "label": "Studio", "href": "/studio", "icon": "menu" },
+      { "label": "Swap", "href": "/swap", "icon": "anchor" },
+      { "label": "Rewards", "href": "/rewards", "icon": "spark" },
+      { "label": "Profile", "href": "/profile", "icon": "profile" },
+      { "label": "Support", "href": "/profile", "icon": "help" }
+    ],
+    "headerActions": [
+      { "label": "Connect Wallet", "icon": "wallet" },
+      { "label": "Profile", "icon": "profile" }
+    ],
+    "footerBar": {
+      "legal": ["Terms of Service", "Privacy Policy"],
+      "market": [
+        { "label": "ETH", "value": "$2,063.38" },
+        { "label": "Gas", "value": "0.14 GWEI" }
+      ],
+      "support": "Support",
+      "modePills": ["Collector", "Pro", "Crypto", "USD"]
+    },
+    "discoverFilters": {
+      "categories": [
+        { "label": "All" },
+        { "label": "Gaming", "icon": "gamepad" },
+        { "label": "Art", "icon": "brush" },
+        { "label": "PFPs", "icon": "profile" }
+      ],
+      "networks": [
+        { "label": "All" },
+        { "label": "ETH", "icon": "eth" },
+        { "label": "SOL", "icon": "sol" },
+        { "label": "BASE", "icon": "base" },
+        { "label": "ARB", "icon": "arb" },
+        { "label": "AVAX", "icon": "avax" },
+        { "label": "APE", "icon": "ape" },
+        { "label": "MATIC", "icon": "matic" },
+        { "label": "More", "icon": "more" }
+      ]
+    },
+    "timeframes": ["All", "30d", "7d", "1d", "1h", "15m", "5m", "1m"],
+    "collectionTabs": [
+      { "label": "Explore", "hrefPattern": "/collection/:slug/explore" },
+      { "label": "Items", "hrefPattern": "/collection/:slug" },
+      { "label": "Holders", "hrefPattern": "/collection/:slug/holders" },
+      { "label": "Traits", "hrefPattern": "/collection/:slug/traits" },
+      { "label": "Activity", "hrefPattern": "/collection/:slug/activity" },
+      { "label": "Analytics", "hrefPattern": "/collection/:slug/analytics" },
+      { "label": "About", "hrefPattern": "/collection/:slug/about" }
+    ]
+  },
+  "network": {
+    "key": "reef",
+    "chainId": 13939,
+    "chainName": "Reef Chain",
+    "rpcUrl": "http://34.123.142.246:8545",
+    "nativeCurrency": {
+      "name": "Reef",
+      "symbol": "REEF",
+      "decimals": 18
+    }
+  },
+  "contracts": {
+    "seaport": {
+      "address": "",
+      "verified": false
+    },
+    "conduitController": {
+      "address": "",
+      "verified": false
+    },
+    "seaDrop": {
+      "address": "",
+      "verified": false,
+      "sourceRepo": "external/projectopensea/seadrop"
+    },
+    "collection": {
+      "address": "",
+      "name": "Reef Genesis",
+      "symbol": "REEF",
+      "verified": false
+    },
+    "artifactPaths": {
+      "deployment": "packages/contracts/deployments/reef-13939.json",
+      "bootstrap": "packages/contracts/deployments/reef-bootstrap-13939.json"
+    }
+  },
+  "services": {
+    "webBaseUrl": "http://localhost:3000",
+    "apiBaseUrl": "http://localhost:4000",
+    "ipfsApiUrl": "http://localhost:5001",
+    "ipfsGatewayUrl": "http://localhost:8080/ipfs"
+  },
+  "storage": {
+    "rootDir": "storage",
+    "publicDir": "storage/public",
+    "generatedDir": "storage/public/generated",
+    "ipfsFallbackDir": "storage/public/ipfs",
+    "publicBasePath": "/storage"
+  },
+  "dummyData": {
+    "seed": "reef-opensea-v1",
+    "collectionCount": 10,
+    "itemsPerCollection": 18,
+    "activityCount": 120,
+    "dropCount": 6,
+    "tokenCount": 18
+  },
+  "features": {
+    "enableDummyData": true,
+    "enableRewardsShell": true,
+    "enableStudioShell": true,
+    "enableProfileShell": true,
+    "enableLiveTrading": false
+  }
+}

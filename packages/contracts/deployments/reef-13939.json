@@ -1,0 +1,11 @@
+{
+  "chainId": 13939,
+  "chainName": "Reef Chain",
+  "collection": "0xEC163d04A56A4592D9EbFBF42aE9eb5aB5161F0E",
+  "collectionName": "Reef Genesis",
+  "collectionSymbol": "REEF",
+  "conduitController": "0xf9DEdda0F11CB6c0c15c777C356e99bC65cd59Fa",
+  "deployer": "0x212e2A4545ee7AC59837212F9860DbC245090B6f",
+  "rpcUrl": "http://34.123.142.246:8545",
+  "seaport": "0x06C45b26b0695D8c55f6B069b15e6D9aA8909316"
+}

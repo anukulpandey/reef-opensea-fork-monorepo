@@ -1,0 +1,29 @@
+import { assert } from "chai";
+import { suite, test } from "mocha";
+import { Chain } from "../../src/types";
+import { decodeTokenIds } from "../../src/utils/utils";
+import { getSdkForChain } from "../utils/setupIntegration";
+
+suite("SDK: getCollectionOffers", () => {
+  test("Get Collection Offers", async () => {
+    const slug = "cool-cats-nft";
+    const response = await getSdkForChain(
+      Chain.Mainnet,
+    ).api.getCollectionOffers(slug);
+
+    assert(response, "Response should not be null");
+    assert(response.offers, "Collection offers should not be null");
+    assert(response.offers.length > 0, "Collection offers should not be empty");
+    const offer = response.offers[0];
+    assert(offer.order_hash, "Order hash should not be null");
+    assert(offer.criteria, "Criteria should not be undefined");
+    const tokens = offer.criteria.encoded_token_ids;
+    assert(tokens, "Encoded token ids should not be null");
+
+    const encodedTokenIds = offer.criteria.encoded_token_ids;
+    assert(encodedTokenIds, "Encoded tokens should not be null");
+
+    const decodedTokenIds = decodeTokenIds(encodedTokenIds);
+    assert(decodedTokenIds[0], "Decoded tokens should not be null");
+  });
+});
