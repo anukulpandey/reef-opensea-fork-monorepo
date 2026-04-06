@@ -1,276 +1,185 @@
-# Reef OpenSea Clone Monorepo
+# Reef OpenSea + Sqwid Migration Monorepo
 
-This repo is a Reef-targeted, OpenSea-dark marketplace monorepo. It mirrors the public OpenSea route tree and browse patterns, uses official public ProjectOpenSea primitives like Seaport and SeaDrop, runs supporting services with Docker Compose, and serves deterministic dummy marketplace data until Reef contract verification is reliable.
+This repo now has two real layers:
 
-This is not the literal private OpenSea production stack. OpenSea does not publish the full marketplace frontend, backend, search, ranking, moderation, or indexing systems. What is public is enough to build a near-identical public marketplace experience around the same core primitives, and that is what this repo does.
+- the existing OpenSea-style frontend shell and Docker-backed local infra
+- a Phase 0 OpenSea-compatible contract gate for Reef that must pass before the Sqwid-style creator/profile/mint/sell migration can continue
 
-## What Is In The Repo
+The migration is intentionally blocked on live Reef deployment, exactly as requested.
+
+## Current Status
+
+The local app stack works:
+
+- Web: [http://localhost:3001](http://localhost:3001)
+- API: [http://localhost:4002](http://localhost:4002)
+- IPFS API: [http://localhost:5002](http://localhost:5002)
+- IPFS gateway: [http://localhost:8081/ipfs](http://localhost:8081/ipfs)
+- Postgres: `localhost:5432`
+
+What is working locally:
+
+- Docker Compose stack
+- Postgres-backed API
+- local IPFS node
+- shared config package
+- OpenSea-style shell UI
+- honest empty states instead of dummy market data
+- OpenSea-compatible Phase 0 contract sources and deployment scripts
+
+What is blocked:
+
+- live Reef deployment on `http://34.123.142.246:8545`
+- the Sqwid-style feature port that depends on that successful deployment
+
+The latest probe artifact is [reef-probe-13939.json](/Users/anukul/Desktop/reef-opensea-fork-monorepo/packages/contracts/deployments/reef-probe-13939.json).
+
+As of April 4, 2026, the latest Phase 0 deployment attempt failed with:
+
+- RPC: `http://34.123.142.246:8545`
+- error: `connect ECONNREFUSED 34.123.142.246:8545`
+
+Because the plan was gated on successful deployment and bytecode verification, the migration stops there until the Reef RPC is reachable and accepts contract creation.
+
+## Repo Layout
 
 - `apps/web`
-  - React + Vite public marketplace clone styled to match the logged-out OpenSea dark desktop experience
-  - routed pages for discover, collections, tokens, swap, drops, activity, rewards, studio, profile, collection detail, item detail, and creator pages
+  - React + Vite frontend
+  - current OpenSea-style shell
 - `apps/api`
-  - Express route-data API
-  - deterministic dataset generator
-  - orderbook endpoints
-  - IPFS JSON pinning with local fallback storage
-  - Postgres-backed sales indexing when infra is available
+  - Express API
+  - Postgres + IPFS integrations
+  - current live-backed read API
 - `packages/config`
-  - single shared source of truth for site metadata, Reef network info, service URLs, storage paths, feature flags, dummy-data seed, and contract addresses
+  - single source of truth for network, services, storage, and contract addresses
 - `packages/contracts`
-  - Reef collection contract
-  - Seaport deployment scripts
-  - SeaDrop reference consumption
-  - normalized deployment artifacts
+  - legacy Reef contracts still present
+  - new OpenSea-compatible Phase 0 contracts and scripts
 - `external/projectopensea`
-  - vendored public ProjectOpenSea repos used as official references
+  - vendored public OpenSea repos used as reference sources
 - `storage`
-  - bind-mounted local storage for generated assets, IPFS fallback payloads, Postgres data, and IPFS node data
+  - bind-mounted local storage for Postgres/IPFS/public assets
 
-## Public Route Map
+## Phase 0 Contract Gate
 
-Top-level routes:
+The new gate is based on public OpenSea primitives plus repo-owned Reef glue:
 
-- `/`
-- `/collections`
-- `/tokens`
-- `/swap`
-- `/drops`
-- `/activity`
-- `/rewards`
-- `/studio`
-- `/profile`
-
-Detail routes:
-
-- `/collection/:slug`
-- `/collection/:slug/explore`
-- `/collection/:slug/items`
-- `/collection/:slug/offers`
-- `/collection/:slug/holders`
-- `/collection/:slug/activity`
-- `/collection/:slug/analytics`
-- `/item/reef/:contract/:tokenId`
-- `/:creator/created`
-
-The route inventory and route-data mapping live in [docs/route-map.md](/Users/anukul/Desktop/reef-opensea-fork-monorepo/docs/route-map.md).
+- [ReefDeploymentProbe.sol](/Users/anukul/Desktop/reef-opensea-fork-monorepo/packages/contracts/src/ReefDeploymentProbe.sol)
+  - minimal deployment probe
+- [deploy_standard_seaport.mjs](/Users/anukul/Desktop/reef-opensea-fork-monorepo/packages/contracts/script/deploy_standard_seaport.mjs)
+  - canonical `ConduitController`
+  - canonical `Seaport`
+- official `SeaDrop` compiled from vendored ProjectOpenSea source
+- [ReefSeaDropCollection.sol](/Users/anukul/Desktop/reef-opensea-fork-monorepo/packages/contracts/src/ReefSeaDropCollection.sol)
+  - SeaDrop-compatible ERC721 collection
+  - creator-owned metadata config
+  - owner mint helper
+- [ReefCreatorFactory.sol](/Users/anukul/Desktop/reef-opensea-fork-monorepo/packages/contracts/src/ReefCreatorFactory.sol)
+  - deploys creator collection clones
+  - configures base URI, contract URI, payout address, royalties, and public mint window
+- [deploy_opensea_stack.mjs](/Users/anukul/Desktop/reef-opensea-fork-monorepo/packages/contracts/script/deploy_opensea_stack.mjs)
+  - deploys SeaDrop + factory
+  - creates one collection
+  - mints one NFT
+  - attempts one Seaport listing + fulfillment
 
 ## Shared Config
 
-`packages/config` is the contract between the web app, API, Docker stack, and deployment scripts.
+The shared config lives in [base-config.json](/Users/anukul/Desktop/reef-opensea-fork-monorepo/packages/config/base-config.json) and is resolved by [index.js](/Users/anukul/Desktop/reef-opensea-fork-monorepo/packages/config/index.js).
 
-It owns:
-
-- `site`
-  - OpenSea-style chrome text, nav items, hero controls, footer bar, and collection tab patterns
-- `network`
-  - Reef chain metadata and RPC URL
-- `contracts`
-  - Seaport, ConduitController, SeaDrop, and collection addresses plus deployment artifact paths
-- `services`
-  - API, web, and IPFS URLs
-- `storage`
-  - local storage roots and public paths
-- `dummyData`
-  - deterministic dataset seed and collection counts
-- `features`
-  - live-trading and shell feature flags
-
-The API loads the full node config and exposes a sanitized public subset through:
-
-- `GET /config`
-- `GET /bootstrap`
-
-## Data Model And Runtime Behavior
-
-The browsing experience is intentionally deterministic.
-
-- collection, item, token, activity, drop, rewards, and studio data are generated from `DUMMY_DATA_SEED`
-- generated images are written into `storage/public/generated`
-- IPFS JSON fallback files are written into `storage/public/ipfs`
-- the frontend reads route data from the API instead of hardcoding page content
-- search, filter, sort, and tab state are URL-backed on the routed pages
-
-What is real:
+It now includes:
 
 - Reef network metadata
-- shared contract configuration
-- static storage serving
-- orderbook endpoints
-- sales indexing and Postgres persistence when infra is available
-- IPFS pinning when the local IPFS node is available
+- service URLs
+- storage paths
+- `seaport`
+- `conduitController`
+- `seaDrop`
+- `creatorFactory`
+- `collectionImplementation`
+- `collection`
+- legacy `marketplace` fields still kept for the older app path
 
-What is dummy:
+## Local Setup
 
-- collection browse data
-- item browse data
-- token market data
-- drops, rewards, and studio route content
-- public stats, charts, holders, and offer shells
-
-## Compose-First Infra
-
-The main stack is defined in [docker-compose.yml](/Users/anukul/Desktop/reef-opensea-fork-monorepo/docker-compose.yml):
-
-- `postgres`
-- `ipfs`
-- `api`
-- `web`
-
-Bind-mounted local storage:
-
-- `./storage/postgres`
-- `./storage/ipfs`
-- `./storage/public/generated`
-- `./storage/public/ipfs`
-
-Start everything:
-
-```bash
-cp .env.example .env
-docker compose up --build -d
-```
-
-Useful commands:
-
-```bash
-npm run stack:up
-npm run stack:down
-npm run docker:logs
-```
-
-Expected ports:
-
-- web: `http://localhost:3000`
-- api: `http://localhost:4000`
-- IPFS gateway: `http://localhost:8080/ipfs`
-- IPFS API: `http://localhost:5001`
-- Postgres: `localhost:5432`
-
-Note:
-
-- Docker could not be executed in this workspace because Docker is not installed on this machine.
-- The compose files and Dockerfiles are present and wired, but they were not started here.
-
-## Local Non-Docker Development
-
-Install dependencies:
+1. Install dependencies:
 
 ```bash
 npm install
 ```
 
-Build everything:
-
-```bash
-npm run build
-```
-
-Run the API:
-
-```bash
-npm run start --workspace @reef/api
-```
-
-Run the web preview:
-
-```bash
-npm run preview --workspace @reef/web -- --host 0.0.0.0 --port 3000
-```
-
-If Postgres and IPFS are not running, the API falls back to demo mode and the UI still renders the full public marketplace shell with generated data.
-
-## Route Data And API Endpoints
-
-Core endpoints:
-
-- `GET /health`
-- `GET /config`
-- `GET /bootstrap`
-- `GET /dataset/discover`
-- `GET /dataset/collections`
-- `GET /dataset/collection/:slug`
-- `GET /dataset/item/:contract/:tokenId`
-- `GET /dataset/tokens`
-- `GET /dataset/activity`
-- `GET /dataset/drops`
-- `GET /dataset/rewards`
-- `GET /dataset/studio`
-- `GET /dataset/profile/:slug`
-
-Marketplace endpoints:
-
-- `POST /ipfs/json`
-- `GET /orders`
-- `POST /orders`
-- `GET /sales`
-
-## Contracts And Deployment
-
-Official public OpenSea primitives used here:
-
-- `seaport`
-- `seaport-js`
-- `opensea-js`
-- `stream-js`
-- `buy-sell-opensea-sdk-demo`
-- `seadrop`
-
-Deployment flow:
+2. Build contracts and apps:
 
 ```bash
 npm run contracts:build
-npm run contracts:deploy:reef
+npm run build
 ```
 
-What the deployment scripts do:
+3. Start the local stack:
 
-1. Read Reef network and contract defaults from `packages/config`.
-2. Attempt the canonical Seaport bootstrap path first.
-3. Fall back to standard CREATE deployments when Reef rejects the canonical path.
-4. Verify deployed bytecode with `eth_getCode` before treating contract deployment as live.
-5. Deploy the sample Reef collection and write normalized artifacts.
+```bash
+docker compose up --build -d
+```
 
-Relevant files:
-
-- [packages/contracts/script/deploy_reef.sh](/Users/anukul/Desktop/reef-opensea-fork-monorepo/packages/contracts/script/deploy_reef.sh)
-- [packages/contracts/script/deploy_standard_seaport.mjs](/Users/anukul/Desktop/reef-opensea-fork-monorepo/packages/contracts/script/deploy_standard_seaport.mjs)
-- [packages/contracts/script/deploy_collection_direct.mjs](/Users/anukul/Desktop/reef-opensea-fork-monorepo/packages/contracts/script/deploy_collection_direct.mjs)
-
-## Current Reef Caveat
-
-As of April 3, 2026, Reef contract deployment is still blocked by RPC verification behavior.
-
-Observed issue:
-
-- contract-creation transactions can return successful receipts
-- the reported contract address can still return `0x` from `eth_getCode`
-
-Because of that, the Reef marketplace fails closed:
-
-- browse flows still render
-- config and route data still work
-- live trading buttons degrade to explicit demo or unavailable states
-- the repo does not pretend the marketplace is fully live when the contracts are not verifiable
-
-## Smoke Checks
-
-After the API and web app are running locally, run:
+4. Smoke-check the routes:
 
 ```bash
 npm run smoke:routes
 ```
 
-That script validates:
+## Contract Commands
 
-- API route-data endpoints
-- direct-load behavior for the public web routes
-- a collection route
-- an item route
-- a creator route
+### Probe only
 
-## Vendored Public ProjectOpenSea Repos
+```bash
+npm run contracts:probe:reef
+```
 
-The public OpenSea repos cloned into `external/projectopensea/` are documented in [docs/projectopensea-public-stack.md](/Users/anukul/Desktop/reef-opensea-fork-monorepo/docs/projectopensea-public-stack.md).
+This deploys a minimal probe and checks whether bytecode can be retrieved.
 
-They are used as official references for the parts OpenSea actually publishes, while this repo provides the missing self-hosted frontend, API, and local infra needed for a deployable marketplace stack.
+### Full Phase 0 gate
+
+```bash
+npm run contracts:deploy:reef
+```
+
+This now:
+
+- builds contracts
+- runs the probe first
+- aborts immediately if the probe fails
+- bootstraps Seaport + ConduitController
+- deploys SeaDrop + ReefCreatorFactory
+- creates a collection
+- mints one NFT
+- attempts a Seaport list-and-buy flow
+- writes the deployment artifact to [reef-13939.json](/Users/anukul/Desktop/reef-opensea-fork-monorepo/packages/contracts/deployments/reef-13939.json) when successful
+
+### Legacy mint helper
+
+```bash
+npm run contracts:mint:reef
+```
+
+This older script is still present for the previous Reef-only collection path, but it is not the contract model the gated migration is targeting.
+
+## Migration Rule
+
+The Sqwid-style app migration does not proceed until the Phase 0 gate succeeds. That means:
+
+- no live profile/create/search/mint/sell feature port has started yet
+- the current frontend remains the existing shell
+- the next unblocker is a reachable Reef RPC that accepts contract creation and returns bytecode
+
+## Key Files
+
+- [ReefSeaDropCollection.sol](/Users/anukul/Desktop/reef-opensea-fork-monorepo/packages/contracts/src/ReefSeaDropCollection.sol)
+- [ReefCreatorFactory.sol](/Users/anukul/Desktop/reef-opensea-fork-monorepo/packages/contracts/src/ReefCreatorFactory.sol)
+- [probe_reef_rpc.mjs](/Users/anukul/Desktop/reef-opensea-fork-monorepo/packages/contracts/script/probe_reef_rpc.mjs)
+- [deploy_standard_seaport.mjs](/Users/anukul/Desktop/reef-opensea-fork-monorepo/packages/contracts/script/deploy_standard_seaport.mjs)
+- [deploy_opensea_stack.mjs](/Users/anukul/Desktop/reef-opensea-fork-monorepo/packages/contracts/script/deploy_opensea_stack.mjs)
+- [reef-probe-13939.json](/Users/anukul/Desktop/reef-opensea-fork-monorepo/packages/contracts/deployments/reef-probe-13939.json)
+- [base-config.json](/Users/anukul/Desktop/reef-opensea-fork-monorepo/packages/config/base-config.json)
+- [App.tsx](/Users/anukul/Desktop/reef-opensea-fork-monorepo/apps/web/src/App.tsx)
+- [index.ts](/Users/anukul/Desktop/reef-opensea-fork-monorepo/apps/api/src/index.ts)
+- [smoke-routes.mjs](/Users/anukul/Desktop/reef-opensea-fork-monorepo/scripts/smoke-routes.mjs)

@@ -1,46 +1,26 @@
-export type RuntimeOrderRecord = {
-  orderHash: string;
-  collectionAddress: string;
-  tokenId: string;
-  maker: string;
-  priceRaw: string;
-  currencyAddress: string;
-  signature: string;
-  order: unknown;
-  status: string;
-  createdAt: string;
-};
-
-export type RuntimeSaleRecord = {
-  txHash: string;
-  orderHash: string;
-  collectionAddress: string;
-  tokenId: string;
-  seller: string;
-  buyer: string;
-  currencyAddress: string;
-  priceRaw: string;
-  blockNumber: number;
-  createdAt: string;
-};
+type ContractKey = "collection" | "marketplace";
 
 type RuntimeState = {
   databaseReady: boolean;
   ipfsReady: boolean;
   storageReady: boolean;
+  contracts: Record<ContractKey, boolean>;
   databaseReason?: string;
   ipfsReason?: string;
   storageReason?: string;
+  contractReasons: Partial<Record<ContractKey, string>>;
 };
 
 export const runtimeState: RuntimeState = {
   databaseReady: false,
   ipfsReady: false,
-  storageReady: false
+  storageReady: false,
+  contracts: {
+    collection: false,
+    marketplace: false
+  },
+  contractReasons: {}
 };
-
-const orderStore = new Map<string, RuntimeOrderRecord>();
-const saleStore: RuntimeSaleRecord[] = [];
 
 export function markDatabaseReady() {
   runtimeState.databaseReady = true;
@@ -72,35 +52,13 @@ export function markStorageUnavailable(reason: unknown) {
   runtimeState.storageReason = reason instanceof Error ? reason.message : String(reason);
 }
 
-export function listRuntimeOrders(filters?: {
-  collectionAddress?: string;
-  status?: string;
-}) {
-  const normalizedCollectionAddress = filters?.collectionAddress?.toLowerCase();
-  const normalizedStatus = filters?.status ?? "active";
-
-  return Array.from(orderStore.values())
-    .filter((order) => order.status === normalizedStatus)
-    .filter((order) => {
-      if (!normalizedCollectionAddress) {
-        return true;
-      }
-      return order.collectionAddress === normalizedCollectionAddress;
-    })
-    .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+export function markContractReady(contract: ContractKey) {
+  runtimeState.contracts[contract] = true;
+  delete runtimeState.contractReasons[contract];
 }
 
-export function upsertRuntimeOrder(order: RuntimeOrderRecord) {
-  orderStore.set(order.orderHash, order);
-}
-
-export function listRuntimeSales(limit = 50) {
-  return saleStore
-    .slice()
-    .sort((left, right) => right.blockNumber - left.blockNumber)
-    .slice(0, limit);
-}
-
-export function insertRuntimeSale(sale: RuntimeSaleRecord) {
-  saleStore.unshift(sale);
+export function markContractUnavailable(contract: ContractKey, reason: unknown) {
+  runtimeState.contracts[contract] = false;
+  runtimeState.contractReasons[contract] =
+    reason instanceof Error ? reason.message : String(reason);
 }

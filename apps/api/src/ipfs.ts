@@ -1,9 +1,38 @@
-import { config } from "./config.js";
-import {
-  markIpfsReady,
-  markIpfsUnavailable
-} from "./runtime.js";
-import { writeIpfsFallbackJson } from "./storage.js";
+import { config, nodeConfig } from "./config.js";
+import { markIpfsReady, markIpfsUnavailable } from "./runtime.js";
+
+function normalizeIpfsPath(uri: string) {
+  if (uri.startsWith("ipfs://")) {
+    return uri.slice("ipfs://".length);
+  }
+  return uri;
+}
+
+export function toGatewayUrl(uri: string) {
+  if (!uri) {
+    return "";
+  }
+  if (uri.startsWith("ipfs://")) {
+    return `${nodeConfig.services.ipfsGatewayUrl}/${normalizeIpfsPath(uri)}`;
+  }
+  return uri;
+}
+
+export async function checkIpfsHealth() {
+  try {
+    const response = await fetch(`${config.ipfsApiUrl}/api/v0/version`, {
+      method: "POST"
+    });
+    if (!response.ok) {
+      throw new Error(`IPFS version failed with status ${response.status}`);
+    }
+    markIpfsReady();
+    return true;
+  } catch (error) {
+    markIpfsUnavailable(error);
+    return false;
+  }
+}
 
 export async function pinJsonToIpfs(payload: unknown, filename = "metadata.json") {
   try {
@@ -40,21 +69,23 @@ export async function pinJsonToIpfs(payload: unknown, filename = "metadata.json"
       cid: parsed.Hash,
       uri: `ipfs://${parsed.Hash}`,
       gatewayUrl: `${config.ipfsGatewayUrl}/${parsed.Hash}`,
-      filename: parsed.Name,
-      demo: false
+      filename: parsed.Name
     };
   } catch (error) {
-    const contents = JSON.stringify(payload, null, 2);
-    const cid = `demo-${Date.now()}`;
-    const filenameOnDisk = filename.endsWith(".json") ? filename : `${filename}.json`;
-    const gatewayUrl = writeIpfsFallbackJson(filenameOnDisk, contents);
     markIpfsUnavailable(error);
-    return {
-      cid,
-      uri: `ipfs://${cid}`,
-      gatewayUrl,
-      filename,
-      demo: true
-    };
+    throw error;
   }
+}
+
+export async function readJsonFromIpfs(uri: string) {
+  const ipfsPath = normalizeIpfsPath(uri);
+  const response = await fetch(
+    `${config.ipfsApiUrl}/api/v0/cat?arg=${encodeURIComponent(ipfsPath)}`
+  );
+
+  if (!response.ok) {
+    throw new Error(`IPFS cat failed with status ${response.status}`);
+  }
+
+  return (await response.json()) as Record<string, unknown>;
 }

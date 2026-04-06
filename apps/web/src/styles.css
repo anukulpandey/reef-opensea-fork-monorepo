@@ -12,7 +12,9 @@
   --accent-soft: rgba(32, 129, 226, 0.16);
   --green: #57c45b;
   --red: #e75a5a;
-  --rail: 56px;
+  --rail-collapsed: 56px;
+  --rail-expanded: 220px;
+  --rail: var(--rail-collapsed);
   --header: 72px;
   --footer: 36px;
   background: var(--bg);
@@ -105,6 +107,11 @@ button {
 .appShell {
   min-height: 100vh;
   background: var(--bg);
+  --rail: var(--rail-collapsed);
+}
+
+.appShell.sidebarExpanded {
+  --rail: var(--rail-expanded);
 }
 
 .sidebarRail {
@@ -115,23 +122,53 @@ button {
   width: var(--rail);
   padding: 10px 8px;
   border-right: 1px solid var(--border);
-  background: var(--bg);
+  background: rgba(17, 19, 21, 0.98);
   display: flex;
   flex-direction: column;
   gap: 10px;
+  overflow: hidden;
+  transition: width 0.22s ease, padding 0.22s ease;
   z-index: 40;
 }
 
 .sidebarButton {
   width: 40px;
-  height: 40px;
+  min-height: 40px;
   border-radius: 12px;
   border: 1px solid transparent;
   background: transparent;
   color: var(--muted);
-  display: grid;
-  place-items: center;
-  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+  display: flex;
+  align-items: center;
+  padding: 0;
+  transition:
+    width 0.22s ease,
+    padding 0.22s ease,
+    background 0.15s ease,
+    color 0.15s ease,
+    border-color 0.15s ease;
+}
+
+.sidebarButtonInner {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+}
+
+.sidebarLabel {
+  max-width: 0;
+  opacity: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  font-size: 14px;
+  font-weight: 600;
+  transform: translateX(-6px);
+  transition:
+    max-width 0.22s ease,
+    opacity 0.16s ease,
+    transform 0.22s ease;
 }
 
 .sidebarButton:hover,
@@ -147,14 +184,31 @@ button {
   margin-bottom: 2px;
 }
 
+.appShell.sidebarExpanded .sidebarButton:not(.brand) {
+  width: 100%;
+  padding: 0 12px;
+}
+
+.appShell.sidebarExpanded .sidebarButtonInner {
+  justify-content: flex-start;
+}
+
+.appShell.sidebarExpanded .sidebarLabel {
+  max-width: 132px;
+  opacity: 1;
+  transform: translateX(0);
+}
+
 .sidebarIcon {
   width: 18px;
   height: 18px;
+  flex: 0 0 auto;
 }
 
 .workspace {
   margin-left: var(--rail);
   min-height: 100vh;
+  transition: margin-left 0.22s ease;
 }
 
 .topHeader {
@@ -170,6 +224,7 @@ button {
   align-items: center;
   justify-content: space-between;
   gap: 16px;
+  transition: left 0.22s ease;
   z-index: 35;
 }
 
@@ -264,6 +319,7 @@ button {
   gap: 14px;
   color: var(--muted);
   font-size: 12px;
+  transition: left 0.22s ease;
   z-index: 35;
 }
 
@@ -316,7 +372,7 @@ button {
   background: var(--green);
 }
 
-.statusDot.demo {
+.statusDot.warning {
   background: #f59e0b;
 }
 
@@ -564,6 +620,43 @@ button {
 .pagePanel,
 .tableSurface {
   padding: 18px 20px;
+}
+
+.emptyShellState,
+.tableEmptyState {
+  display: grid;
+  place-items: center;
+  min-height: 160px;
+  text-align: center;
+  color: var(--muted);
+}
+
+.emptyShellState h2 {
+  margin: 0 0 8px;
+  color: var(--text);
+  font-size: 28px;
+}
+
+.emptyShellState p,
+.tableEmptyState p {
+  margin: 0;
+}
+
+.emptyShellState.compact {
+  min-height: 120px;
+}
+
+.heroEmptyState {
+  min-height: 290px;
+  padding: 28px;
+  background:
+    radial-gradient(circle at 18% 82%, rgba(32, 129, 226, 0.18), transparent 28%),
+    radial-gradient(circle at 84% 18%, rgba(32, 129, 226, 0.16), transparent 24%),
+    linear-gradient(180deg, #14181d 0%, #101317 100%);
+}
+
+.emptySection {
+  min-height: 120px;
 }
 
 .leaderHeader,
@@ -839,14 +932,14 @@ button {
 }
 
 .swapPanel {
-  padding: 20px;
+  padding: 18px;
   display: flex;
   flex-direction: column;
   gap: 14px;
 }
 
 .swapPanel label {
-  padding: 18px;
+  padding: 16px;
   border-radius: 12px;
   border: 1px solid var(--border);
   background: var(--panel-2);
@@ -854,15 +947,17 @@ button {
 
 .swapPanel label span {
   color: var(--muted);
-  font-size: 12px;
+  font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 0.08em;
 }
 
 .swapPanel label strong {
   display: block;
-  margin-top: 8px;
-  font-size: 30px;
+  margin-top: 6px;
+  font-size: 19px;
+  line-height: 1.25;
+  word-break: break-word;
 }
 
 .primaryCta,
@@ -900,6 +995,216 @@ button {
   justify-content: space-between;
   gap: 20px;
   align-items: center;
+}
+
+.studioActionGrid {
+  align-items: stretch;
+}
+
+.studioActionCard,
+.supportCard {
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--panel);
+}
+
+.studioActionCard {
+  padding: 20px;
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.studioActionCard:hover {
+  border-color: #31363d;
+  background: #1a1d22;
+}
+
+.supportGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.supportCard {
+  padding: 18px;
+}
+
+.supportCard strong {
+  display: block;
+  margin-top: 8px;
+  font-size: 14px;
+  line-height: 1.5;
+  word-break: break-word;
+}
+
+.adminGrid {
+  align-items: start;
+}
+
+.adminForm {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.fieldGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.fieldGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.fieldGroup.fullSpan {
+  grid-column: 1 / -1;
+}
+
+.fieldGroup span {
+  color: var(--muted);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.textInput,
+.textArea {
+  width: 100%;
+  min-height: 44px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--text);
+  outline: none;
+}
+
+.textArea {
+  min-height: 140px;
+  resize: vertical;
+}
+
+.codeArea {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 13px;
+}
+
+.createPreviewCard {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.collectionPreviewHero {
+  position: relative;
+  min-height: 188px;
+  border-radius: 16px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  background: #0f1113;
+}
+
+.collectionPreviewBanner {
+  width: 100%;
+  height: 188px;
+  object-fit: cover;
+  display: block;
+}
+
+.collectionPreviewAvatar {
+  position: absolute;
+  left: 18px;
+  bottom: 18px;
+  width: 76px;
+  height: 76px;
+  border-radius: 18px;
+  border: 4px solid rgba(17, 19, 21, 0.95);
+  object-fit: cover;
+  background: #101214;
+}
+
+.createPreviewImage {
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  object-fit: cover;
+  border-radius: 16px;
+  border: 1px solid var(--border);
+  background: #0f1113;
+}
+
+.createPreviewBody {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.createPreviewBody strong {
+  font-size: 22px;
+}
+
+.adminToolbar,
+.adminDropActions,
+.adminDropMeta,
+.adminDropHeader {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.adminToolbar {
+  justify-content: flex-start;
+}
+
+.adminNotes {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.adminDropList {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.adminDropRow {
+  display: grid;
+  grid-template-columns: 164px minmax(0, 1fr) auto;
+  gap: 16px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--panel);
+}
+
+.adminDropRow img {
+  width: 100%;
+  height: 120px;
+  object-fit: cover;
+  border-radius: 12px;
+  background: #101214;
+}
+
+.adminDropBody {
+  min-width: 0;
+}
+
+.adminDropBody p {
+  margin: 8px 0 0;
+  color: var(--muted);
+  line-height: 1.6;
+}
+
+.adminDropMeta {
+  margin-top: 12px;
+  color: var(--muted);
+  font-size: 13px;
 }
 
 .collectionPage {
@@ -1164,6 +1469,7 @@ button {
   display: flex;
   gap: 10px;
   align-items: center;
+  transition: left 0.22s ease;
   z-index: 30;
 }
 
@@ -1173,6 +1479,7 @@ button {
   left: calc(var(--rail) + 8px);
   right: 8px;
   bottom: calc(var(--footer) + 8px);
+  transition: left 0.22s ease;
   z-index: 50;
 }
 
@@ -1384,6 +1691,250 @@ button {
   min-height: 280px;
 }
 
+.profilePage {
+  padding-bottom: 112px;
+}
+
+.profileHeroSurface {
+  position: relative;
+  min-height: 220px;
+  border-bottom: 1px solid var(--border);
+  margin: -16px -18px 0;
+}
+
+.profileHeroBanner {
+  width: 100%;
+  height: 220px;
+  object-fit: cover;
+}
+
+.profileHeroShade {
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(90deg, rgba(31, 52, 85, 0.88) 0%, rgba(27, 34, 45, 0.76) 48%, rgba(31, 24, 75, 0.86) 100%),
+    linear-gradient(180deg, rgba(17, 19, 21, 0.12) 0%, rgba(17, 19, 21, 0.72) 100%);
+}
+
+.profileHeroInner {
+  position: absolute;
+  inset: 0;
+  padding: 18px 22px 22px;
+  display: flex;
+  justify-content: space-between;
+  align-items: end;
+  gap: 20px;
+}
+
+.profileHeroIdentity {
+  display: flex;
+  align-items: end;
+  gap: 18px;
+  min-width: 0;
+}
+
+.profileHeroAvatar {
+  width: 96px;
+  height: 96px;
+  border-radius: 50%;
+  border: 6px solid rgba(17, 19, 21, 0.9);
+  background: #131518;
+  object-fit: cover;
+  transform: translateY(32px);
+}
+
+.profileTitleBlock {
+  min-width: 0;
+}
+
+.profileTitleRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.profileTitleRow h1 {
+  margin: 0;
+  font-size: 52px;
+  line-height: 1;
+}
+
+.profileTitleBlock p {
+  margin: 12px 0 0;
+  max-width: 560px;
+  color: rgba(255, 255, 255, 0.78);
+}
+
+.profileTag {
+  display: inline-flex;
+  margin-top: 12px;
+  padding: 4px 8px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(17, 19, 21, 0.46);
+  color: rgba(255, 255, 255, 0.86);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+
+.profileHeroStats {
+  display: flex;
+  align-items: flex-start;
+  gap: 28px;
+  padding-bottom: 10px;
+}
+
+.profileHeroStats article {
+  min-width: 72px;
+  text-align: right;
+}
+
+.profileHeroStats span {
+  color: rgba(255, 255, 255, 0.58);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.profileHeroStats strong {
+  display: block;
+  margin-top: 10px;
+  font-size: 18px;
+  font-family: "IBM Plex Mono", monospace;
+}
+
+.profileTabBar {
+  display: flex;
+  gap: 24px;
+  margin-top: 26px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border);
+  overflow-x: auto;
+}
+
+.profileEmptyBoard {
+  position: relative;
+  min-height: 360px;
+  padding: 12px 0 0;
+}
+
+.profileCreatedBoard {
+  position: relative;
+  min-height: 420px;
+  padding-top: 10px;
+}
+
+.profileEmptyRow {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.profileEmptySlot {
+  min-height: 210px;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  background: linear-gradient(180deg, #16181b 0%, #131518 100%);
+}
+
+.profileEmptyMessage {
+  position: absolute;
+  inset: 50% 0 auto;
+  transform: translateY(-30%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 10px;
+  pointer-events: none;
+}
+
+.profileEmptyMessage.hasAction {
+  pointer-events: auto;
+}
+
+.profileEmptyMessage img {
+  width: 110px;
+  height: 110px;
+  border-radius: 18px;
+  object-fit: cover;
+}
+
+.profileEmptyMessage h2 {
+  margin: 0;
+  font-size: 28px;
+}
+
+.profileEmptyMessage p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 16px;
+}
+
+.profileEmptyAction {
+  margin-top: 12px;
+  min-width: 172px;
+}
+
+.collectionTableGhost {
+  opacity: 0.32;
+}
+
+.ghostAvatar {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  background: linear-gradient(180deg, #2a2e35 0%, #1e2127 100%);
+}
+
+.ghostStack {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+.ghostBar {
+  display: block;
+  height: 12px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #30343a 0%, #262a30 100%);
+}
+
+.ghostBar.medium {
+  width: 140px;
+}
+
+.ghostBar.short {
+  width: 88px;
+}
+
+.profileActionDock {
+  position: fixed;
+  left: calc(var(--rail) + 18px);
+  right: 18px;
+  bottom: calc(var(--footer) + 10px);
+  padding: 8px;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  background: rgba(17, 19, 21, 0.96);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  transition: left 0.22s ease;
+  z-index: 30;
+}
+
+.profileActionGroup {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
 .creatorBanner {
   width: 100%;
   height: 100%;
@@ -1414,7 +1965,9 @@ button {
   }
 
   .itemGrid,
-  .traitSummaryGrid {
+  .traitSummaryGrid,
+  .fieldGrid,
+  .supportGrid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
@@ -1429,7 +1982,10 @@ button {
 
   .heroMetricRail,
   .collectionHeroOverlay,
-  .profileShell {
+  .profileShell,
+  .profileHeroInner,
+  .profileHeroIdentity,
+  .profileActionDock {
     flex-direction: column;
     align-items: flex-start;
   }
@@ -1438,9 +1994,18 @@ button {
     left: calc(var(--rail) + 12px);
     right: 12px;
   }
+
+  .profileEmptyRow {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 900px) {
+  .appShell,
+  .appShell.sidebarExpanded {
+    --rail: var(--rail-collapsed);
+  }
+
   .topHeader,
   .footerBar {
     left: 0;
@@ -1461,6 +2026,21 @@ button {
     overflow-x: auto;
   }
 
+  .sidebarButton,
+  .appShell.sidebarExpanded .sidebarButton {
+    width: 40px;
+    padding: 0;
+  }
+
+  .sidebarButtonInner,
+  .appShell.sidebarExpanded .sidebarButtonInner {
+    justify-content: center;
+  }
+
+  .sidebarLabel {
+    display: none;
+  }
+
   .workspace {
     margin-left: 0;
   }
@@ -1474,7 +2054,8 @@ button {
     bottom: calc(var(--footer) + 68px);
   }
 
-  .stickyActionBar {
+  .stickyActionBar,
+  .profileActionDock {
     left: 12px;
     right: 12px;
     bottom: calc(var(--footer) + 72px);
@@ -1506,7 +2087,8 @@ button {
   .heroOverlay h1,
   .collectionTitleRow h1,
   .creatorOverlay h1,
-  .titleCluster h1 {
+  .titleCluster h1,
+  .profileTitleRow h1 {
     font-size: 30px;
   }
 
@@ -1515,7 +2097,17 @@ button {
   .traitList,
   .cardStack,
   .itemGrid,
-  .traitSummaryGrid {
+  .traitSummaryGrid,
+  .fieldGrid,
+  .supportGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .adminDropRow {
+    grid-template-columns: 1fr;
+  }
+
+  .profileEmptyRow {
     grid-template-columns: 1fr;
   }
 

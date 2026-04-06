@@ -2,7 +2,7 @@
   "site": {
     "name": "OpenSea",
     "tagline": "exchange everything",
-    "description": "A dark OpenSea-style desktop marketplace demo backed by Reef-local data, Seaport references, and compose-managed services.",
+    "description": "An OpenSea-style read-only marketplace shell for Reef while live contract deployment remains unavailable.",
     "supportEmail": "support@opensea.local",
     "themeMode": "opensea-dark",
     "nav": [
@@ -10,6 +10,7 @@
       { "label": "Collections", "href": "/collections" },
       { "label": "Tokens", "href": "/tokens" },
       { "label": "Swap", "href": "/swap" },
+      { "label": "Create", "href": "/create" },
       { "label": "Drops", "href": "/drops" },
       { "label": "Activity", "href": "/activity" },
       { "label": "Rewards", "href": "/rewards", "gated": true },
@@ -24,10 +25,11 @@
       { "label": "Activity", "href": "/activity", "icon": "activity" },
       { "label": "Drops", "href": "/drops", "icon": "calendar" },
       { "label": "Studio", "href": "/studio", "icon": "menu" },
+      { "label": "Create", "href": "/create", "icon": "brush" },
       { "label": "Swap", "href": "/swap", "icon": "anchor" },
       { "label": "Rewards", "href": "/rewards", "icon": "spark" },
       { "label": "Profile", "href": "/profile", "icon": "profile" },
-      { "label": "Support", "href": "/profile", "icon": "help" }
+      { "label": "Support", "href": "/support", "icon": "help" }
     ],
     "headerActions": [
       { "label": "Connect Wallet", "icon": "wallet" },
@@ -35,10 +37,7 @@
     ],
     "footerBar": {
       "legal": ["Terms of Service", "Privacy Policy"],
-      "market": [
-        { "label": "ETH", "value": "$2,063.38" },
-        { "label": "Gas", "value": "0.14 GWEI" }
-      ],
+      "market": [],
       "support": "Support",
       "modePills": ["Collector", "Pro", "Crypto", "USD"]
     },
@@ -50,15 +49,7 @@
         { "label": "PFPs", "icon": "profile" }
       ],
       "networks": [
-        { "label": "All" },
-        { "label": "ETH", "icon": "eth" },
-        { "label": "SOL", "icon": "sol" },
-        { "label": "BASE", "icon": "base" },
-        { "label": "ARB", "icon": "arb" },
-        { "label": "AVAX", "icon": "avax" },
-        { "label": "APE", "icon": "ape" },
-        { "label": "MATIC", "icon": "matic" },
-        { "label": "More", "icon": "more" }
+        { "label": "Reef" }
       ]
     },
     "timeframes": ["All", "30d", "7d", "1d", "1h", "15m", "5m", "1m"],
@@ -97,15 +88,30 @@
       "verified": false,
       "sourceRepo": "external/projectopensea/seadrop"
     },
+    "creatorFactory": {
+      "address": "",
+      "verified": false
+    },
+    "collectionImplementation": {
+      "address": "",
+      "verified": false
+    },
+    "marketplace": {
+      "address": "",
+      "verified": false,
+      "source": "reef-native-v1"
+    },
     "collection": {
       "address": "",
+      "slug": "reef-genesis",
       "name": "Reef Genesis",
       "symbol": "REEF",
       "verified": false
     },
     "artifactPaths": {
       "deployment": "packages/contracts/deployments/reef-13939.json",
-      "bootstrap": "packages/contracts/deployments/reef-bootstrap-13939.json"
+      "bootstrap": "packages/contracts/deployments/reef-bootstrap-13939.json",
+      "probe": "packages/contracts/deployments/reef-probe-13939.json"
     }
   },
   "services": {
@@ -121,19 +127,10 @@
     "ipfsFallbackDir": "storage/public/ipfs",
     "publicBasePath": "/storage"
   },
-  "dummyData": {
-    "seed": "reef-opensea-v1",
-    "collectionCount": 10,
-    "itemsPerCollection": 18,
-    "activityCount": 120,
-    "dropCount": 6,
-    "tokenCount": 18
-  },
   "features": {
-    "enableDummyData": true,
     "enableRewardsShell": true,
     "enableStudioShell": true,
     "enableProfileShell": true,
-    "enableLiveTrading": false
+    "enableLiveTrading": true
   }
 }

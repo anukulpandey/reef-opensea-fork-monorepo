@@ -1,3 +1,7 @@
 forge-std/=lib/forge-std/src/
-openzeppelin-contracts/=lib/openzeppelin-contracts/
+openzeppelin-contracts/=lib/openzeppelin-contracts/contracts/
 solmate/=lib/solmate/src/
+seadrop/=lib/seadrop/
+openzeppelin-contracts-upgradeable/=lib/openzeppelin-contracts-upgradeable/contracts/
+ERC721A/=lib/ERC721A/contracts/
+utility-contracts/=lib/utility-contracts/src/

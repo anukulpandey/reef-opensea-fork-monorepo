@@ -40,7 +40,7 @@ function buildCardSvg(title: string, subtitle: string, accentSeed: string, wide 
   <circle cx="${Math.round(width * 0.72)}" cy="${Math.round(height * 0.82)}" r="${Math.round(height * 0.23)}" fill="rgba(4,12,26,0.18)"/>
   <text x="72" y="${wide ? 120 : 170}" font-family="Arial, Helvetica, sans-serif" font-size="${wide ? 42 : 56}" fill="rgba(255,255,255,0.82)">${escapeXml(subtitle)}</text>
   <text x="72" y="${wide ? 220 : 300}" font-family="Arial, Helvetica, sans-serif" font-weight="700" font-size="${wide ? 86 : 114}" fill="white">${escapeXml(title)}</text>
-  <text x="72" y="${wide ? 290 : 382}" font-family="Arial, Helvetica, sans-serif" font-size="${wide ? 30 : 42}" fill="rgba(255,255,255,0.86)">ReefSea / OpenSea-style demo asset</text>
+  <text x="72" y="${wide ? 290 : 382}" font-family="Arial, Helvetica, sans-serif" font-size="${wide ? 30 : 42}" fill="rgba(255,255,255,0.86)">Reef live marketplace asset</text>
 </svg>`;
 }
 

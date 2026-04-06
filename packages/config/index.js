@@ -61,9 +61,14 @@ export function resolveNodeAppConfig(options = {}) {
     cwd,
     env.REEF_BOOTSTRAP_FILE ?? base.contracts.artifactPaths.bootstrap
   );
+  const probeArtifactPath = resolveCandidate(
+    cwd,
+    env.REEF_PROBE_FILE ?? base.contracts.artifactPaths.probe
+  );
 
   const deploymentArtifact = readArtifactIfExists(deploymentArtifactPath);
   const bootstrapArtifact = readArtifactIfExists(bootstrapArtifactPath);
+  const probeArtifact = readArtifactIfExists(probeArtifactPath);
 
   const services = {
     ...base.services,
@@ -90,10 +95,26 @@ export function resolveNodeAppConfig(options = {}) {
     deploymentArtifact?.conduitController ??
     bootstrapArtifact?.conduitController ??
     base.contracts.conduitController.address;
+  const seaDropAddress =
+    env.SEADROP_ADDRESS ??
+    deploymentArtifact?.seaDrop ??
+    base.contracts.seaDrop.address;
+  const creatorFactoryAddress =
+    env.CREATOR_FACTORY_ADDRESS ??
+    deploymentArtifact?.creatorFactory ??
+    base.contracts.creatorFactory.address;
+  const collectionImplementationAddress =
+    env.COLLECTION_IMPLEMENTATION_ADDRESS ??
+    deploymentArtifact?.collectionImplementation ??
+    base.contracts.collectionImplementation.address;
   const collectionAddress =
     env.COLLECTION_ADDRESS ??
     deploymentArtifact?.collection ??
     base.contracts.collection.address;
+  const marketplaceAddress =
+    env.MARKETPLACE_ADDRESS ??
+    deploymentArtifact?.marketplace ??
+    base.contracts.marketplace.address;
 
   const seaportVerified =
     env.SEAPORT_VERIFIED === "true" ||
@@ -102,7 +123,36 @@ export function resolveNodeAppConfig(options = {}) {
       bootstrapArtifact?.verified ||
       (deploymentArtifact?.seaport && bootstrapArtifact?.verified)
     );
-  const collectionVerified = env.COLLECTION_VERIFIED === "true" || Boolean(deploymentArtifact?.verified);
+  const collectionVerified =
+    env.COLLECTION_VERIFIED === "true" ||
+    Boolean(
+      deploymentArtifact?.collectionVerified ??
+      (deploymentArtifact?.verified && deploymentArtifact?.collection)
+    );
+  const seaDropVerified =
+    env.SEADROP_VERIFIED === "true" ||
+    Boolean(
+      deploymentArtifact?.seaDropVerified ??
+      (deploymentArtifact?.verified && deploymentArtifact?.seaDrop)
+    );
+  const creatorFactoryVerified =
+    env.CREATOR_FACTORY_VERIFIED === "true" ||
+    Boolean(
+      deploymentArtifact?.creatorFactoryVerified ??
+      (deploymentArtifact?.verified && deploymentArtifact?.creatorFactory)
+    );
+  const collectionImplementationVerified =
+    env.COLLECTION_IMPLEMENTATION_VERIFIED === "true" ||
+    Boolean(
+      deploymentArtifact?.collectionImplementationVerified ??
+      (deploymentArtifact?.verified && deploymentArtifact?.collectionImplementation)
+    );
+  const marketplaceVerified =
+    env.MARKETPLACE_VERIFIED === "true" ||
+    Boolean(
+      deploymentArtifact?.marketplaceVerified ??
+      (deploymentArtifact?.verified && deploymentArtifact?.marketplace)
+    );
 
   const contracts = {
     ...base.contracts,
@@ -118,19 +168,36 @@ export function resolveNodeAppConfig(options = {}) {
     },
     seaDrop: {
       ...base.contracts.seaDrop,
-      address: env.SEADROP_ADDRESS ?? base.contracts.seaDrop.address,
-      verified: env.SEADROP_VERIFIED === "true" || base.contracts.seaDrop.verified
+      address: seaDropAddress,
+      verified: seaDropVerified
+    },
+    creatorFactory: {
+      ...base.contracts.creatorFactory,
+      address: creatorFactoryAddress,
+      verified: creatorFactoryVerified
+    },
+    collectionImplementation: {
+      ...base.contracts.collectionImplementation,
+      address: collectionImplementationAddress,
+      verified: collectionImplementationVerified
+    },
+    marketplace: {
+      ...base.contracts.marketplace,
+      address: marketplaceAddress,
+      verified: marketplaceVerified
     },
     collection: {
       ...base.contracts.collection,
       address: collectionAddress,
+      slug: env.COLLECTION_SLUG ?? deploymentArtifact?.collectionSlug ?? base.contracts.collection.slug,
       name: env.COLLECTION_NAME ?? deploymentArtifact?.collectionName ?? base.contracts.collection.name,
       symbol: env.COLLECTION_SYMBOL ?? deploymentArtifact?.collectionSymbol ?? base.contracts.collection.symbol,
       verified: collectionVerified
     },
     artifactPaths: {
       deployment: deploymentArtifactPath,
-      bootstrap: bootstrapArtifactPath
+      bootstrap: bootstrapArtifactPath,
+      probe: probeArtifactPath
     }
   };
 
@@ -142,16 +209,11 @@ export function resolveNodeAppConfig(options = {}) {
     ipfsFallbackDir: env.STORAGE_IPFS_FALLBACK_DIR ?? base.storage.ipfsFallbackDir
   };
 
-  const dummyData = {
-    ...base.dummyData,
-    seed: env.DUMMY_DATA_SEED ?? base.dummyData.seed
-  };
-
   const features = deepMerge(base.features, {
     enableLiveTrading:
       env.ENABLE_LIVE_TRADING === "true"
         ? true
-        : base.features.enableLiveTrading && seaportVerified && collectionVerified
+        : base.features.enableLiveTrading && collectionVerified && marketplaceVerified
   });
 
   return {
@@ -160,14 +222,14 @@ export function resolveNodeAppConfig(options = {}) {
     contracts,
     services,
     storage,
-    dummyData,
     features,
     references: {
       projectOpenSeaRoot: path.resolve(cwd, "external/projectopensea")
     },
     artifacts: {
       deployment: deploymentArtifact,
-      bootstrap: bootstrapArtifact
+      bootstrap: bootstrapArtifact,
+      probe: probeArtifact
     }
   };
 }
@@ -185,7 +247,6 @@ export function buildPublicConfig(nodeConfig) {
     storage: {
       publicBasePath: nodeConfig.storage.publicBasePath
     },
-    dummyData: nodeConfig.dummyData,
     features: nodeConfig.features
   };
 }

@@ -1,86 +1,108 @@
-# Public Route Map
+# Route Map
 
-This document describes the public route inventory that mirrors the OpenSea public information architecture in the repo's literal dark OpenSea-style shell.
+This document describes the current route behavior of the OpenSea-style Reef shell.
 
-## Top-Level Routes
+## Core Live Routes
 
 - `/`
-  - Discover landing page with hero, trending collections, drops, tokens, and recent activity.
+  - OpenSea-dark discover shell
+  - empty shelves until real Reef data exists
 - `/collections`
-  - Searchable and sortable collections index.
-- `/tokens`
-  - Searchable and sortable token market table.
-- `/swap`
-  - Logged-in trading intent shell with Reef chain copy and Seaport wiring status.
-- `/drops`
-  - Drops landing page with stage filters and generated campaigns.
+  - live-backed collection index
+  - zero rows until a real collection is verifiably live and indexed
 - `/activity`
-  - Marketplace-wide activity feed with event-type filtering.
-- `/rewards`
-  - Logged-out shell modeled after OpenSea Rewards.
-- `/studio`
-  - Logged-out shell modeled after OpenSea Studio and backed by SeaDrop references.
-- `/profile`
-  - Logged-out collector profile shell.
-
-## Collection Routes
-
+  - live-backed listings, sales, mints, and transfers
 - `/collection/:slug`
-  - Collection overview hero, stats, featured items, related collections.
-- `/collection/:slug/explore`
-  - OpenSea-style collection browse grid.
-- `/collection/:slug/items`
-  - Item grid alias for collection browsing.
-- `/collection/:slug/offers`
-  - Offer table shell.
-- `/collection/:slug/holders`
-  - Holder leaderboard shell.
-- `/collection/:slug/activity`
-  - Collection-scoped activity feed.
-- `/collection/:slug/analytics`
-  - Analytics card and trend panel shell.
-
-## Item And Creator Routes
-
+  - collection detail for the deployed collection only
+  - tabs for:
+    - `explore`
+    - `items`
+    - `offers`
+    - `holders`
+    - `activity`
+    - `analytics`
+    - `traits`
+    - `about`
 - `/item/reef/:contract/:tokenId`
-  - NFT item detail page with media, price card, traits, and history.
+  - deep-link modal
+  - only resolves for real indexed NFTs
+
+## Non-Core Shell Routes
+
+These routes remain in the UI shell but are honest unavailable or empty states:
+
+- `/tokens`
+- `/swap`
+- `/drops`
+- `/rewards`
+- `/studio`
+- `/profile`
 - `/:creator/created`
-  - Creator landing page with created collections and items.
 
-## Route Data Sources
+## Data Sources
 
+Primary API routes:
+
+- `/health`
+- `/config`
 - `/bootstrap`
-  - Shared route metadata, nav, featured collections, drops, tokens, references, runtime flags.
 - `/dataset/discover`
-  - Discover page sections.
 - `/dataset/collections`
-  - Collection index data with search and filters.
 - `/dataset/collection/:slug`
-  - Collection detail, items, offers, holders, activity, analytics.
 - `/dataset/item/:contract/:tokenId`
-  - Item detail route data.
-- `/dataset/tokens`
-  - Token table data.
 - `/dataset/activity`
-  - Activity feed data.
-- `/dataset/drops`
-  - Drop index data.
-- `/dataset/rewards`
-  - Rewards shell data.
-- `/dataset/studio`
-  - Studio shell data.
 - `/dataset/profile/:slug`
-  - Creator/profile route data.
+- `/listings`
+- `/orders`
+- `/sales`
 
-## Real vs Dummy
+Shell-only API routes:
 
-- Real
-  - Reef network metadata from shared config.
-  - Contract addresses and deployment artifacts when verified.
-  - Orderbook, sales, and IPFS endpoints.
-  - Generated assets served from local storage paths.
-- Dummy
-  - Public marketplace browse data, stats, holders, offers, rewards, and studio panels.
-  - Generated collection, item, token, and activity records from the deterministic seed.
-- Degraded When Reef Contracts Are Not Verifiable
-  - Buy and list flows render explicit demo or unavailable states instead of pretending live trading works.
+- `/dataset/tokens`
+- `/dataset/drops`
+- `/dataset/rewards`
+- `/dataset/studio`
+
+## Backing Tables
+
+Core live data comes from:
+
+- `nfts`
+- `listings`
+- `sales`
+- `transfers`
+- `sync_state`
+
+## Live vs Unavailable
+
+Live when the Reef deployment path succeeds:
+
+- collection browse
+- item browse
+- listings
+- sales
+- transfers
+- wallet listing actions
+- wallet cancel actions
+- wallet buy actions
+
+Unavailable until the Reef RPC accepts contract deployment and returns bytecode:
+
+- contract-backed trading
+- collection route population from live deployed NFTs
+- item routes for real on-chain NFTs
+
+## Current Blocker
+
+As of April 3, 2026, the collection and marketplace contracts are not live because the Reef RPC deployment probe is failing.
+
+The recorded failure artifact is:
+
+- [packages/contracts/deployments/reef-probe-13939.json](/Users/anukul/Desktop/reef-opensea-fork-monorepo/packages/contracts/deployments/reef-probe-13939.json)
+
+The current app therefore behaves as:
+
+- core public routes load
+- local infra is live
+- API health is real
+- trading controls remain hidden until the Reef deployment blocker is resolved

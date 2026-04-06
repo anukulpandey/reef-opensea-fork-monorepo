@@ -1,0 +1,26 @@
+{
+  "items": [
+    {
+      "name": "Reef Genesis #1",
+      "subtitle": "Launch edition",
+      "description": "The first live Reef Genesis NFT minted into the managed marketplace collection.",
+      "accent": "#2081e2",
+      "accentSoft": "#101c2e",
+      "attributes": [
+        { "trait_type": "Edition", "value": "Genesis" },
+        { "trait_type": "Tier", "value": "Founder" }
+      ]
+    },
+    {
+      "name": "Reef Genesis #2",
+      "subtitle": "Marketplace seed",
+      "description": "A second live asset for listing, sale, and activity verification on Reef.",
+      "accent": "#0ea5e9",
+      "accentSoft": "#0e2431",
+      "attributes": [
+        { "trait_type": "Edition", "value": "Genesis" },
+        { "trait_type": "Tier", "value": "Pilot" }
+      ]
+    }
+  ]
+}

@@ -41,8 +41,11 @@ export type PublicContracts = {
   seaport: { address: string; verified: boolean };
   conduitController: { address: string; verified: boolean };
   seaDrop: { address: string; verified: boolean; sourceRepo?: string };
-  collection: { address: string; name: string; symbol: string; verified: boolean };
-  artifactPaths: { deployment: string; bootstrap: string };
+  creatorFactory: { address: string; verified: boolean };
+  collectionImplementation: { address: string; verified: boolean };
+  marketplace: { address: string; verified: boolean; source?: string };
+  collection: { address: string; slug: string; name: string; symbol: string; verified: boolean };
+  artifactPaths: { deployment: string; bootstrap: string; probe: string };
 };
 
 export type PublicAppConfig = {
@@ -83,16 +86,7 @@ export type PublicAppConfig = {
   storage: {
     publicBasePath: string;
   };
-  dummyData: {
-    seed: string;
-    collectionCount: number;
-    itemsPerCollection: number;
-    activityCount: number;
-    dropCount: number;
-    tokenCount: number;
-  };
   features: {
-    enableDummyData: boolean;
     enableRewardsShell: boolean;
     enableStudioShell: boolean;
     enableProfileShell: boolean;
@@ -117,6 +111,7 @@ export type NodeAppConfig = PublicAppConfig & {
   artifacts: {
     deployment?: Record<string, unknown>;
     bootstrap?: Record<string, unknown>;
+    probe?: Record<string, unknown>;
   };
 };
 
