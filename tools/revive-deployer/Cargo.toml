@@ -1,0 +1,13 @@
+[package]
+name = "revive-deployer"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = "1.0.81"
+hex = "0.4.3"
+jsonrpsee = { version = "0.24.8", features = ["http-client"] }
+pallet-revive = { path = "/Users/anukul/Desktop/latest-reef-chain-upgrade/chain-upgrade/modules/revive", default-features = true }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tokio = { version = "1.45.0", features = ["macros", "rt-multi-thread", "time"] }

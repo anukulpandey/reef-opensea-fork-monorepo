@@ -7,7 +7,11 @@ import { AbiCoder, JsonRpcProvider, Wallet, getCreateAddress } from "ethers";
 const rootDir = path.resolve(path.dirname(new URL(import.meta.url).pathname), "../../..");
 const appConfig = resolveNodeAppConfig({ cwd: rootDir });
 
-const rpcUrl = process.env.REEF_RPC_URL ?? appConfig.network.rpcUrl;
+const configuredRpcUrl = process.env.REEF_RPC_URL ?? appConfig.network.rpcUrl;
+const rpcUrl =
+  configuredRpcUrl.includes("host.docker.internal") && !process.env.RUNNING_IN_DOCKER
+    ? configuredRpcUrl.replace("host.docker.internal", "127.0.0.1")
+    : configuredRpcUrl;
 const chainId = Number(process.env.REEF_CHAIN_ID ?? String(appConfig.network.chainId));
 const chainName = process.env.REEF_CHAIN_NAME ?? appConfig.network.chainName;
 const collectionName = process.env.COLLECTION_NAME ?? appConfig.contracts.collection.name;
@@ -89,6 +93,7 @@ const predictedAddress = getCreateAddress({ from: wallet.address, nonce });
 
 const transaction = await wallet.sendTransaction({
   type: 0,
+  chainId,
   nonce,
   data: initCode,
   gasPrice,

@@ -1,6 +1,13 @@
 import express from "express";
 import { z } from "zod";
 
+import {
+  buildAuthMessage,
+  createNonce,
+  issueAccessToken,
+  readAccessToken,
+  verifyWalletSignature
+} from "./auth.js";
 import { config, ensureLocalDirectories, nodeConfig, publicConfig } from "./config.js";
 import {
   getActivityData,
@@ -17,24 +24,30 @@ import {
 } from "./dataset.js";
 import {
   archiveAdminDrop,
+  createAuthNonce,
+  consumeAuthNonce,
   getCreatorCollectionBySlug,
+  getUserByAddress,
+  insertTransfer,
   initializeDatabase,
   listAdminDrops,
   listCreatorCollections,
   listListings,
   listSales,
+  searchUsers,
+  upsertListingCreated,
+  upsertUserProfile,
+  upsertNft,
   upsertCreatorCollection,
   upsertAdminDrop
 } from "./db.js";
-import { checkIpfsHealth, pinJsonToIpfs } from "./ipfs.js";
+import { deployCreatorCollection } from "./deployer.js";
+import { checkIpfsHealth, pinFileToIpfs, pinJsonToIpfs } from "./ipfs.js";
 import { startIndexer } from "./indexer.js";
-import { runtimeState } from "./runtime.js";
-import { initializeStorage } from "./storage.js";
+import { runtimeState, setCapability, setDeploymentMode } from "./runtime.js";
+import { initializeStorage, writeDataUrlAsset } from "./storage.js";
 
 const app = express();
-app.use(express.json({ limit: "2mb" }));
-app.use(config.publicStorageBasePath, express.static(config.storagePublicRoot));
-
 app.use((request, response, next) => {
   response.setHeader("Access-Control-Allow-Origin", "*");
   response.setHeader("Access-Control-Allow-Headers", "Content-Type, X-Admin-Wallet, X-Creator-Wallet, Authorization");
@@ -45,6 +58,12 @@ app.use((request, response, next) => {
   }
   next();
 });
+app.use(express.json({ limit: process.env.API_JSON_LIMIT ?? "80mb" }));
+app.use(`${config.publicStorageBasePath}/generated`, express.static(config.storageGeneratedRoot));
+app.use(`${config.publicStorageBasePath}/ipfs`, express.static(config.storageIpfsFallbackRoot));
+app.use(config.publicStorageBasePath, express.static(config.storagePublicRoot));
+
+syncRuntimeCapabilitiesFromConfig();
 
 app.get("/health", async (_, response) => {
   response.json({
@@ -55,11 +74,14 @@ app.get("/health", async (_, response) => {
       storage: runtimeState.storageReady
     },
     contracts: runtimeState.contracts,
+    deploymentMode: runtimeState.deploymentMode,
+    capabilities: runtimeState.capabilities,
     liveTrading:
       nodeConfig.features.enableLiveTrading &&
-      runtimeState.contracts.collection &&
-      runtimeState.contracts.marketplace,
+      (runtimeState.capabilities.marketplace.erc721.enabled ||
+        runtimeState.capabilities.marketplace.erc1155.enabled),
     chainId: nodeConfig.network.chainId,
+    indexer: runtimeState.indexer,
     reasons: {
       database: runtimeState.databaseReason,
       ipfs: runtimeState.ipfsReason,
@@ -83,6 +105,89 @@ app.get("/bootstrap", async (_, response) => {
   });
 });
 
+app.get("/auth/nonce", async (request, response) => {
+  try {
+    const { address } = authNonceQuerySchema.parse(request.query);
+    const nonce = createNonce();
+    const message = buildAuthMessage(address, nonce, nodeConfig.network.chainName);
+    const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString();
+    await createAuthNonce(address, nonce, expiresAt);
+    response.json({
+      address: address.toLowerCase(),
+      nonce,
+      message,
+      expiresAt
+    });
+  } catch (error) {
+    response.status(400).json({
+      error: error instanceof Error ? error.message : "Invalid auth nonce request"
+    });
+  }
+});
+
+app.post("/auth/verify", async (request, response) => {
+  try {
+    const payload = authVerifySchema.parse(request.body ?? {});
+    const normalizedAddress = payload.address.toLowerCase();
+    const expectedMessage = buildAuthMessage(normalizedAddress, payload.nonce, nodeConfig.network.chainName);
+    if (payload.message !== expectedMessage) {
+      response.status(400).json({ error: "Signed message does not match the expected Reef auth message." });
+      return;
+    }
+    if (!verifyWalletSignature({
+      address: normalizedAddress,
+      message: payload.message,
+      signature: payload.signature
+    })) {
+      response.status(401).json({ error: "Wallet signature could not be verified." });
+      return;
+    }
+    const consumed = await consumeAuthNonce(normalizedAddress, payload.nonce);
+    if (!consumed) {
+      response.status(401).json({ error: "Nonce is invalid, expired, or already used." });
+      return;
+    }
+
+    const existingUser = await getUserByAddress(normalizedAddress);
+    const role =
+      existingUser?.role ??
+      (config.adminWallets.includes(normalizedAddress) ? "admin" : "creator");
+
+    await upsertUserProfile({
+      address: normalizedAddress,
+      role
+    });
+
+    const token = issueAccessToken(
+      {
+        sub: normalizedAddress,
+        role
+      },
+      config.authTokenSecret
+    );
+
+    response.json({
+      token,
+      user: await getUserByAddress(normalizedAddress)
+    });
+  } catch (error) {
+    response.status(400).json({
+      error: error instanceof Error ? error.message : "Auth verification failed"
+    });
+  }
+});
+
+app.get("/auth/session", async (request, response) => {
+  const auth = getAuthenticatedUser(request);
+  if (!auth) {
+    response.status(401).json({ error: "Missing or invalid session." });
+    return;
+  }
+  response.json({
+    user: await getUserByAddress(auth.address)
+  });
+});
+
 const adminDropSchema = z.object({
   slug: z.string().trim().min(1).max(80).optional(),
   name: z.string().trim().min(1).max(120),
@@ -96,6 +201,25 @@ const adminDropSchema = z.object({
   description: z.string().trim().min(1).max(2000)
 });
 
+const authNonceQuerySchema = z.object({
+  address: z.string().trim().min(42).max(80)
+});
+
+const authVerifySchema = z.object({
+  address: z.string().trim().min(42).max(80),
+  nonce: z.string().trim().min(8).max(128),
+  message: z.string().trim().min(10).max(4000),
+  signature: z.string().trim().min(10).max(1024)
+});
+
+const userProfileSchema = z.object({
+  displayName: z.string().trim().max(120).default(""),
+  bio: z.string().trim().max(2000).default(""),
+  avatarUri: z.string().trim().max(2048).default(""),
+  bannerUri: z.string().trim().max(2048).default(""),
+  links: z.record(z.string(), z.string()).default({})
+});
+
 const creatorCollectionSchema = z.object({
   slug: z.string().trim().min(1).max(80).optional(),
   name: z.string().trim().min(1).max(120),
@@ -103,34 +227,142 @@ const creatorCollectionSchema = z.object({
   description: z.string().trim().max(2000).default(""),
   avatarUrl: z.string().trim().min(1),
   bannerUrl: z.string().trim().min(1),
+  chainKey: z.string().trim().min(1).max(24).default("reef"),
+  chainName: z.string().trim().min(1).max(80).default(nodeConfig.network.chainName),
+  standard: z.enum(["ERC721", "ERC1155"]).default("ERC721"),
+  deploymentMode: z.string().trim().min(1).max(40).default("fallback"),
+  factoryAddress: z.string().trim().max(80).default(""),
+  marketplaceMode: z.string().trim().max(40).default("blocked"),
   contractUri: z.string().trim().default(""),
-  status: z.enum(["draft", "ready"]).default("draft")
+  contractAddress: z.string().trim().default(""),
+  deploymentTxHash: z.string().trim().default(""),
+  status: z.enum(["draft", "gated", "deploying", "ready"]).default("draft")
+});
+
+const creatorCollectionDeploySchema = creatorCollectionSchema.extend({
+  royaltyBps: z.coerce.number().int().min(0).max(10_000).default(0)
+});
+
+const creatorMintSchema = z.object({
+  collectionSlug: z.string().trim().min(1).max(80),
+  collectionAddress: z.string().trim().min(1).max(80),
+  tokenId: z.string().trim().min(1).max(80),
+  metadataUri: z.string().trim().min(1),
+  imageUrl: z.string().trim().min(1),
+  name: z.string().trim().min(1).max(160),
+  description: z.string().trim().max(4000).default(""),
+  ownerAddress: z.string().trim().min(1).max(80),
+  creatorAddress: z.string().trim().min(1).max(80),
+  txHash: z.string().trim().min(1).max(120),
+  blockNumber: z.coerce.number().int().nonnegative().default(0),
+  attributes: z
+    .array(
+      z.object({
+        trait_type: z.string().trim().optional(),
+        value: z.string().trim().optional()
+      })
+    )
+    .default([])
+});
+
+const ipfsFileSchema = z.object({
+  filename: z.string().trim().min(1).max(255),
+  dataUrl: z.string().trim().min(10),
+  contentType: z.string().trim().max(120).optional()
+});
+
+const marketplaceOrderSchema = z.object({
+  listingId: z.string().trim().min(1).max(80),
+  marketplaceAddress: z.string().trim().min(1).max(80),
+  collectionAddress: z.string().trim().min(1).max(80),
+  tokenId: z.string().trim().min(1).max(80),
+  seller: z.string().trim().min(1).max(80),
+  priceRaw: z.string().trim().min(1).max(120),
+  txHash: z.string().trim().min(1).max(120),
+  blockNumber: z.coerce.number().int().nonnegative().default(0)
 });
 
 app.get("/admin/session", (request, response) => {
-  const wallet = getAdminWallet(request);
+  const auth = getAuthenticatedUser(request);
   response.json({
-    wallet,
-    isAdmin: wallet ? config.adminWallets.includes(wallet) : false
+    wallet: auth?.address ?? "",
+    isAdmin: auth?.role === "admin"
   });
 });
 
 app.get("/admin/drops", async (request, response) => {
-  const wallet = requireAdminWallet(request, response);
-  if (!wallet) {
+  const auth = requireAdminUser(request, response);
+  if (!auth) {
     return;
   }
 
   response.json({
-    wallet,
+    wallet: auth.address,
     drops: await listAdminDrops({ includeArchived: true })
   });
+});
+
+app.get("/users/:address", async (request, response) => {
+  const address = String(request.params.address ?? "").trim().toLowerCase();
+  if (!address) {
+    response.status(400).json({ error: "Address is required." });
+    return;
+  }
+
+  const user =
+    (await getUserByAddress(address)) ??
+    ({
+      address,
+      displayName: "",
+      bio: "",
+      avatarUri: "",
+      bannerUri: "",
+      links: {},
+      role: config.adminWallets.includes(address) ? "admin" : "creator"
+    });
+
+  response.json({ user });
+});
+
+app.patch("/users/me", async (request, response) => {
+  const auth = requireAuthenticatedUser(request, response);
+  if (!auth) {
+    return;
+  }
+
+  try {
+    const payload = userProfileSchema.parse(request.body ?? {});
+    await upsertUserProfile({
+      address: auth.address,
+      displayName: payload.displayName,
+      bio: payload.bio,
+      avatarUri: payload.avatarUri,
+      bannerUri: payload.bannerUri,
+      links: payload.links,
+      role: auth.role
+    });
+    response.json({
+      ok: true,
+      user: await getUserByAddress(auth.address)
+    });
+  } catch (error) {
+    response.status(400).json({
+      error: error instanceof Error ? error.message : "Invalid profile update"
+    });
+  }
 });
 
 app.get("/creator/collections", async (request, response) => {
   const owner = String(request.query.owner ?? "").trim().toLowerCase();
   response.json({
     owner,
+    collections: await listCreatorCollections(owner || undefined)
+  });
+});
+
+app.get("/collections", async (request, response) => {
+  const owner = String(request.query.owner ?? "").trim().toLowerCase();
+  response.json({
     collections: await listCreatorCollections(owner || undefined)
   });
 });
@@ -144,10 +376,101 @@ app.get("/creator/collections/:slug", async (request, response) => {
   response.json(collection);
 });
 
+app.get("/collections/:slug", async (request, response) => {
+  const collection = await getCreatorCollectionBySlug(slugify(request.params.slug));
+  if (!collection) {
+    response.status(404).json({ error: "Creator collection not found" });
+    return;
+  }
+  response.json(collection);
+});
+
+app.get("/collections/owner/:address", async (request, response) => {
+  const owner = String(request.params.address ?? "").trim().toLowerCase();
+  response.json({
+    owner,
+    collections: await listCreatorCollections(owner || undefined)
+  });
+});
+
+app.post("/creator/collections/deploy", async (request, response) => {
+  const auth = requireAuthenticatedUser(request, response);
+  if (!auth) {
+    return;
+  }
+
+  try {
+    const payload = creatorCollectionDeploySchema.parse(request.body ?? {});
+    const creatorCapability =
+      payload.standard === "ERC1155"
+        ? runtimeState.capabilities.creator.erc1155
+        : runtimeState.capabilities.creator.erc721;
+    if (!creatorCapability.enabled || creatorCapability.mode === "blocked") {
+      response.status(503).json({
+        error:
+          creatorCapability.reason ||
+          `Creator deployments for ${payload.standard} are not available on this Reef runtime.`
+      });
+      return;
+    }
+
+    if (creatorCapability.mode === "official") {
+      response.status(409).json({
+        error: "Official creator deploys must be submitted through the wallet path."
+      });
+      return;
+    }
+
+    const slug = slugify(payload.slug || payload.name);
+    const deployment = await deployCreatorCollection({
+      standard: payload.standard,
+      name: payload.name,
+      symbol: payload.symbol,
+      contractUri: payload.contractUri,
+      ownerAddress: auth.address,
+      royaltyBps: payload.royaltyBps
+    });
+
+    await upsertCreatorCollection({
+      slug,
+      ownerAddress: auth.address,
+      name: payload.name,
+      symbol: payload.symbol,
+      description: payload.description,
+      avatarUrl: payload.avatarUrl,
+      bannerUrl: payload.bannerUrl,
+      chainKey: payload.chainKey,
+      chainName: payload.chainName,
+      standard: payload.standard,
+      deploymentMode: creatorCapability.mode,
+      factoryAddress: creatorCapability.factoryAddress ?? "",
+      marketplaceMode: payload.marketplaceMode || creatorCapability.marketplaceMode || "blocked",
+      contractUri: payload.contractUri,
+      contractAddress: deployment.address,
+      deploymentTxHash: deployment.txHash,
+      status: "ready"
+    });
+
+    response.status(201).json({
+      ok: true,
+      slug,
+      contractAddress: deployment.address,
+      deploymentTxHash: deployment.txHash,
+      blockNumber: deployment.blockNumber,
+      deploymentMode: creatorCapability.mode,
+      factoryAddress: creatorCapability.factoryAddress ?? "",
+      marketplaceMode: payload.marketplaceMode || creatorCapability.marketplaceMode || "blocked"
+    });
+  } catch (error) {
+    response.status(503).json({
+      error: error instanceof Error ? error.message : "Failed to deploy creator collection"
+    });
+  }
+});
+
 app.post("/creator/collections", async (request, response) => {
-  const wallet = String(request.header("x-creator-wallet") ?? "").trim().toLowerCase();
-  if (!wallet) {
-    response.status(401).json({ error: "Creator wallet header is required" });
+  const auth = requireAuthenticatedUser(request, response);
+  if (!auth) {
     return;
   }
 
@@ -156,13 +479,21 @@ app.post("/creator/collections", async (request, response) => {
     const slug = slugify(payload.slug || payload.name);
     await upsertCreatorCollection({
       slug,
-      ownerAddress: wallet,
+      ownerAddress: auth.address,
       name: payload.name,
       symbol: payload.symbol,
       description: payload.description,
       avatarUrl: payload.avatarUrl,
       bannerUrl: payload.bannerUrl,
+      chainKey: payload.chainKey,
+      chainName: payload.chainName,
+      standard: payload.standard,
+      deploymentMode: payload.deploymentMode,
+      factoryAddress: payload.factoryAddress,
+      marketplaceMode: payload.marketplaceMode,
       contractUri: payload.contractUri,
+      contractAddress: payload.contractAddress,
+      deploymentTxHash: payload.deploymentTxHash,
       status: payload.status
     });
 
@@ -177,9 +508,12 @@ app.post("/creator/collections", async (request, response) => {
   }
 });
 
+app.post("/creator/mints", handleCreatorMint);
+app.post("/assets/mint", handleCreatorMint);
+
 app.post("/admin/drops", async (request, response) => {
-  const wallet = requireAdminWallet(request, response);
-  if (!wallet) {
+  const auth = requireAdminUser(request, response);
+  if (!auth) {
     return;
   }
 
@@ -198,7 +532,7 @@ app.post("/admin/drops", async (request, response) => {
       supply: payload.supply,
       startLabel: payload.startLabel,
       description: payload.description,
-      actorAddress: wallet
+      actorAddress: auth.address
     });
 
     response.status(201).json({
@@ -213,8 +547,8 @@ app.post("/admin/drops", async (request, response) => {
 });
 
 app.patch("/admin/drops/:slug", async (request, response) => {
-  const wallet = requireAdminWallet(request, response);
-  if (!wallet) {
+  const auth = requireAdminUser(request, response);
+  if (!auth) {
     return;
   }
 
@@ -233,7 +567,7 @@ app.patch("/admin/drops/:slug", async (request, response) => {
       supply: payload.supply,
       startLabel: payload.startLabel,
       description: payload.description,
-      actorAddress: wallet
+      actorAddress: auth.address
     });
 
     response.json({
@@ -248,12 +582,12 @@ app.patch("/admin/drops/:slug", async (request, response) => {
 });
 
 app.delete("/admin/drops/:slug", async (request, response) => {
-  const wallet = requireAdminWallet(request, response);
-  if (!wallet) {
+  const auth = requireAdminUser(request, response);
+  if (!auth) {
     return;
   }
 
-  await archiveAdminDrop(slugify(request.params.slug), wallet);
+  await archiveAdminDrop(slugify(request.params.slug), auth.address);
   response.json({ ok: true });
 });
 
@@ -283,6 +617,15 @@ app.get("/dataset/collection/:slug", async (request, response) => {
 });
 
 app.get("/dataset/item/:contract/:tokenId", async (request, response) => {
+  const result = await getItemData(request.params.contract, request.params.tokenId);
+  if (!result) {
+    response.status(404).json({ error: "Item not found" });
+    return;
+  }
+  response.json(result);
+});
+
+app.get("/assets/:contract/:tokenId", async (request, response) => {
   const result = await getItemData(request.params.contract, request.params.tokenId);
   if (!result) {
     response.status(404).json({ error: "Item not found" });
@@ -346,6 +689,36 @@ app.post("/ipfs/json", async (request, response) => {
   }
 });
 
+app.post("/ipfs/file", async (request, response) => {
+  try {
+    const payload = ipfsFileSchema.parse(request.body ?? {});
+    const match = payload.dataUrl.match(/^data:([^;,]+)?((?:;[^,]+)*),([\s\S]+)$/);
+    if (!match) {
+      response.status(400).json({ error: "Invalid data URL payload." });
+      return;
+    }
+
+    const mimeType = payload.contentType?.trim() || match[1] || "application/octet-stream";
+    const parameters = match[2] ?? "";
+    const isBase64 = parameters.toLowerCase().includes(";base64");
+    const rawBody = match[3] ?? "";
+    const contents = isBase64
+      ? Buffer.from(rawBody, "base64")
+      : Buffer.from(decodeURIComponent(rawBody), "utf8");
+
+    const result = await pinFileToIpfs({
+      filename: payload.filename,
+      contents,
+      contentType: mimeType
+    });
+    response.json(result);
+  } catch (error) {
+    response.status(503).json({
+      error: error instanceof Error ? error.message : "Failed to pin file to IPFS"
+    });
+  }
+});
+
 app.get("/listings", async (request, response) => {
   const collectionAddress = String(request.query.collectionAddress ?? "");
   const status = String(request.query.status ?? "active");
@@ -357,6 +730,72 @@ app.get("/listings", async (request, response) => {
       tokenId
     })
   );
+});
+
+app.post("/marketplace/orders", async (request, response) => {
+  const auth = requireAuthenticatedUser(request, response);
+  if (!auth) {
+    return;
+  }
+
+  try {
+    const payload = marketplaceOrderSchema.parse(request.body ?? {});
+    if (payload.seller.toLowerCase() !== auth.address) {
+      response.status(403).json({ error: "Authenticated wallet must match the listing seller." });
+      return;
+    }
+    await upsertListingCreated({
+      listingId: payload.listingId,
+      marketplaceAddress: payload.marketplaceAddress,
+      collectionAddress: payload.collectionAddress,
+      tokenId: payload.tokenId,
+      seller: payload.seller,
+      priceRaw: payload.priceRaw,
+      txHash: payload.txHash,
+      blockNumber: payload.blockNumber
+    });
+    response.status(201).json({ ok: true, listingId: payload.listingId });
+  } catch (error) {
+    response.status(400).json({
+      error: error instanceof Error ? error.message : "Invalid marketplace order"
+    });
+  }
+});
+
+app.get("/marketplace/orders", async (request, response) => {
+  const collectionAddress = String(request.query.collectionAddress ?? "");
+  const status = String(request.query.status ?? "active");
+  const tokenId = String(request.query.tokenId ?? "");
+  response.json(
+    await listListings({
+      collectionAddress,
+      status,
+      tokenId
+    })
+  );
+});
+
+app.get("/marketplace/offers", async (_, response) => {
+  response.json({ offers: [] });
+});
+
+app.get("/marketplace/activity", async (_, response) => {
+  response.json(await getActivityData({ type: "all", search: "" }));
+});
+
+app.get("/marketplace/summary", async (_, response) => {
+  const [listings, sales, activity] = await Promise.all([
+    listListings({ status: "active" }),
+    listSales(),
+    getActivityData({ type: "all", search: "" })
+  ]);
+  response.json({
+    totals: {
+      listings: listings.length,
+      sales: sales.length,
+      activity: activity.activities.length
+    }
+  });
 });
 
 app.get("/orders", async (request, response) => {
@@ -376,6 +815,27 @@ app.get("/sales", async (_, response) => {
   response.json(await listSales());
 });
 
+app.get("/search/collections/:query", async (request, response) => {
+  const query = String(request.params.query ?? "").trim().toLowerCase();
+  const collections = await listCreatorCollections();
+  response.json({
+    collections: collections.filter((collection) =>
+      !query
+        ? true
+        : collection.name.toLowerCase().includes(query) ||
+          collection.slug.toLowerCase().includes(query) ||
+          collection.symbol.toLowerCase().includes(query)
+    )
+  });
+});
+
+app.get("/search/users/:query", async (request, response) => {
+  const query = String(request.params.query ?? "").trim();
+  response.json({
+    users: query ? await searchUsers(query) : []
+  });
+});
+
 async function main() {
   ensureLocalDirectories();
   initializeStorage();
@@ -383,9 +843,136 @@ async function main() {
   await checkIpfsHealth();
   await startIndexer();
 
-  app.listen(config.port, () => {
-    console.log(`Reef marketplace API listening on ${config.port}`);
+app.listen(config.port, () => {
+  console.log(`Reef marketplace API listening on ${config.port}`);
+});
+
+app.use((error: unknown, _request: express.Request, response: express.Response, _next: express.NextFunction) => {
+  if (
+    typeof error === "object" &&
+    error !== null &&
+    "type" in error &&
+    (error as { type?: string }).type === "entity.too.large"
+  ) {
+    response.status(413).json({
+      error: "Payload too large. Upload a smaller file or use the IPFS file upload path."
+    });
+    return;
+  }
+
+  response.status(500).json({
+    error: error instanceof Error ? error.message : "Unexpected server error"
   });
+});
+}
+
+async function handleCreatorMint(request: express.Request, response: express.Response) {
+  const auth = requireAuthenticatedUser(request, response);
+  if (!auth) {
+    return;
+  }
+
+  try {
+    const payload = creatorMintSchema.parse(request.body ?? {});
+    const collection = await getCreatorCollectionBySlug(slugify(payload.collectionSlug));
+    if (!collection) {
+      response.status(404).json({ error: "Creator collection not found" });
+      return;
+    }
+    if (collection.ownerAddress.toLowerCase() !== auth.address) {
+      response.status(403).json({ error: "Only the collection owner can register creator mints." });
+      return;
+    }
+    if (
+      collection.contractAddress &&
+      collection.contractAddress.toLowerCase() !== payload.collectionAddress.toLowerCase()
+    ) {
+      response.status(400).json({ error: "Mint collection address does not match the saved creator collection." });
+      return;
+    }
+
+    const normalizedImageUrl = normalizeCreatorMintImageUrl(collection, payload.imageUrl);
+    const persistedImageUrl = persistCreatorMintImage(collection.slug, payload.tokenId, normalizedImageUrl);
+
+    await upsertNft({
+      collectionSlug: collection.slug,
+      collectionAddress: payload.collectionAddress,
+      tokenId: payload.tokenId,
+      name: payload.name,
+      description: payload.description,
+      imageUrl: persistedImageUrl,
+      metadataUri: payload.metadataUri,
+      ownerAddress: payload.ownerAddress,
+      creatorAddress: payload.creatorAddress,
+      attributes: payload.attributes
+    });
+
+    await insertTransfer({
+      txHash: payload.txHash,
+      logIndex: 0,
+      collectionAddress: payload.collectionAddress,
+      tokenId: payload.tokenId,
+      fromAddress: "0x0000000000000000000000000000000000000000",
+      toAddress: payload.ownerAddress,
+      eventType: "mint",
+      blockNumber: payload.blockNumber
+    });
+
+    response.status(201).json({
+      ok: true,
+      collectionSlug: collection.slug,
+      tokenId: payload.tokenId
+    });
+  } catch (error) {
+    response.status(400).json({
+      error: error instanceof Error ? error.message : "Invalid creator mint payload"
+    });
+  }
+}
+
+function persistCreatorMintImage(collectionSlug: string, tokenId: string, imageUrl: string) {
+  const normalized = imageUrl.trim();
+  if (!normalized) {
+    return "";
+  }
+  if (!normalized.startsWith("data:image/")) {
+    return normalized;
+  }
+  return writeDataUrlAsset("nfts", `${collectionSlug}-${tokenId}`, normalized) || normalized;
+}
+
+function decodeInlineSvgDataUrl(url: string) {
+  if (!url.startsWith("data:image/svg+xml")) {
+    return "";
+  }
+  const separatorIndex = url.indexOf(",");
+  if (separatorIndex === -1) {
+    return "";
+  }
+  try {
+    return decodeURIComponent(url.slice(separatorIndex + 1));
+  } catch {
+    return "";
+  }
+}
+
+function isImplicitDefaultStarterArtwork(url: string) {
+  const svg = decodeInlineSvgDataUrl(url);
+  if (!svg) {
+    return false;
+  }
+  return svg.includes("Reef NFT") && svg.includes("Collector Edition") && svg.includes("orbFill");
+}
+
+function normalizeCreatorMintImageUrl(
+  collection: { avatarUrl: string; bannerUrl: string },
+  imageUrl: string
+) {
+  const normalized = imageUrl.trim();
+  if (!normalized || isImplicitDefaultStarterArtwork(normalized)) {
+    return collection.avatarUrl.trim() || collection.bannerUrl.trim() || normalized;
+  }
+  return normalized;
 }
 
 function runtimePayload() {
@@ -396,10 +983,13 @@ function runtimePayload() {
       storage: runtimeState.storageReady
     },
     contracts: runtimeState.contracts,
+    deploymentMode: runtimeState.deploymentMode,
+    capabilities: runtimeState.capabilities,
     liveTrading:
       nodeConfig.features.enableLiveTrading &&
-      runtimeState.contracts.collection &&
-      runtimeState.contracts.marketplace,
+      (runtimeState.capabilities.marketplace.erc721.enabled ||
+        runtimeState.capabilities.marketplace.erc1155.enabled),
+    indexer: runtimeState.indexer,
     reasons: {
       database: runtimeState.databaseReason,
       ipfs: runtimeState.ipfsReason,
@@ -409,20 +999,59 @@ function runtimePayload() {
   };
 }
 
-function getAdminWallet(request: express.Request) {
-  const walletHeader = request.header("x-admin-wallet");
-  return walletHeader ? walletHeader.trim().toLowerCase() : "";
+function syncRuntimeCapabilitiesFromConfig() {
+  setDeploymentMode(nodeConfig.deployment.mode);
+  setCapability("creator", "erc721", nodeConfig.deployment.creator.erc721);
+  setCapability("creator", "erc1155", nodeConfig.deployment.creator.erc1155);
+  setCapability("marketplace", "erc721", nodeConfig.deployment.marketplace.erc721);
+  setCapability("marketplace", "erc1155", nodeConfig.deployment.marketplace.erc1155);
 }
 
-function requireAdminWallet(request: express.Request, response: express.Response) {
-  const wallet = getAdminWallet(request);
-  if (!wallet || !config.adminWallets.includes(wallet)) {
+function getAuthenticatedUser(request: express.Request) {
+  const authorization = request.header("authorization") ?? "";
+  if (!authorization.toLowerCase().startsWith("bearer ")) {
+    return null;
+  }
+
+  const token = authorization.slice("bearer ".length).trim();
+  if (!token) {
+    return null;
+  }
+
+  try {
+    const payload = readAccessToken(token, config.authTokenSecret);
+    return {
+      address: String(payload.sub).toLowerCase(),
+      role: String(payload.role ?? "user")
+    };
+  } catch {
+    return null;
+  }
+}
+
+function requireAuthenticatedUser(request: express.Request, response: express.Response) {
+  const auth = getAuthenticatedUser(request);
+  if (!auth) {
+    response.status(401).json({
+      error: "A signed wallet session is required."
+    });
+    return null;
+  }
+  return auth;
+}
+
+function requireAdminUser(request: express.Request, response: express.Response) {
+  const auth = requireAuthenticatedUser(request, response);
+  if (!auth) {
+    return null;
+  }
+  if (auth.role !== "admin") {
     response.status(403).json({
       error: "Admin access is restricted to Reef team wallets."
     });
     return null;
   }
-  return wallet;
+  return auth;
 }
 
 function slugify(value: string) {

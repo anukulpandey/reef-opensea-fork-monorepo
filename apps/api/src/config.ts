@@ -41,9 +41,14 @@ export const config = {
   storageGeneratedRoot: path.resolve(repoRoot, nodeConfig.storage.generatedDir),
   storageIpfsFallbackRoot: path.resolve(repoRoot, nodeConfig.storage.ipfsFallbackDir),
   adminWallets,
+  authTokenSecret:
+    process.env.AUTH_TOKEN_SECRET ??
+    process.env.PRIVATE_KEY?.trim() ??
+    "reef-marketplace-local-dev-secret",
   publicStorageBasePath: nodeConfig.storage.publicBasePath,
   deploymentPath: nodeConfig.contracts.artifactPaths.deployment,
-  bootstrapPath: nodeConfig.contracts.artifactPaths.bootstrap
+  bootstrapPath: nodeConfig.contracts.artifactPaths.bootstrap,
+  runtimePath: nodeConfig.contracts.artifactPaths.runtime
 };
 
 export function ensureLocalDirectories() {

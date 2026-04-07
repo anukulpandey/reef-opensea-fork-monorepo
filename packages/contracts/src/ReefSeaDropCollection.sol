@@ -12,6 +12,8 @@ import {PublicDrop} from "seadrop/lib/SeaDropStructs.sol";
  * @notice Reef-specific SeaDrop-compatible ERC721 collection with one extra owner mint helper.
  */
 contract ReefSeaDropCollection is ERC721SeaDropCloneable {
+    mapping(uint256 => string) private _creatorTokenUris;
+
     struct InitConfig {
         address seaDrop;
         address initialOwner;
@@ -30,6 +32,7 @@ contract ReefSeaDropCollection is ERC721SeaDropCloneable {
     }
 
     event OwnerMint(address indexed to, uint256 quantity, uint256 startingTokenId);
+    event CreatorMint(address indexed to, uint256 indexed tokenId, string tokenURI);
 
     constructor() {
         _disableInitializers();
@@ -108,5 +111,35 @@ contract ReefSeaDropCollection is ERC721SeaDropCloneable {
         uint256 startingTokenId = _nextTokenId();
         _safeMint(to, quantity);
         emit OwnerMint(to, quantity, startingTokenId);
+    }
+
+    function mintCreator(
+        address to,
+        string calldata tokenUri_
+    ) external onlyOwner returns (uint256 tokenId) {
+        uint256 newTotalMinted = _totalMinted() + 1;
+        uint256 currentMaxSupply = maxSupply();
+        if (currentMaxSupply != 0 && newTotalMinted > currentMaxSupply) {
+            revert MintQuantityExceedsMaxSupply(newTotalMinted, currentMaxSupply);
+        }
+
+        tokenId = _nextTokenId();
+        _safeMint(to, 1);
+        _creatorTokenUris[tokenId] = tokenUri_;
+        emit BatchMetadataUpdate(tokenId, tokenId);
+        emit CreatorMint(to, tokenId, tokenUri_);
+    }
+
+    function tokenURI(
+        uint256 tokenId
+    ) public view override returns (string memory) {
+        if (!_exists(tokenId)) revert URIQueryForNonexistentToken();
+
+        string memory creatorTokenUri = _creatorTokenUris[tokenId];
+        if (bytes(creatorTokenUri).length != 0) {
+            return creatorTokenUri;
+        }
+
+        return super.tokenURI(tokenId);
     }
 }

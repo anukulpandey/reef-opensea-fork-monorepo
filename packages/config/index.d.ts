@@ -37,15 +37,79 @@ export type CollectionTab = {
   hrefPattern: string;
 };
 
+export type ManagedProfileToken = {
+  key: string;
+  type: "native" | "erc20";
+  address?: string;
+  symbol: string;
+  displayName: string;
+  decimals: number;
+  iconUrl: string;
+  includeInPortfolio: boolean;
+};
+
+export type ContractRef = {
+  address: string;
+  verified: boolean;
+  sourceRepo?: string;
+  source?: string;
+};
+
+export type CapabilityRef = {
+  enabled: boolean;
+  mode: "official" | "fallback" | "mixed" | "blocked";
+  address?: string;
+  factoryAddress?: string;
+  implementationAddress?: string;
+  marketplaceMode?: "official" | "fallback" | "mixed" | "blocked";
+  reason?: string;
+};
+
 export type PublicContracts = {
-  seaport: { address: string; verified: boolean };
-  conduitController: { address: string; verified: boolean };
-  seaDrop: { address: string; verified: boolean; sourceRepo?: string };
-  creatorFactory: { address: string; verified: boolean };
-  collectionImplementation: { address: string; verified: boolean };
-  marketplace: { address: string; verified: boolean; source?: string };
-  collection: { address: string; slug: string; name: string; symbol: string; verified: boolean };
-  artifactPaths: { deployment: string; bootstrap: string; probe: string };
+  official: {
+    seaport: ContractRef;
+    conduitController: ContractRef;
+    seaDrop: ContractRef;
+    creatorFactory: ContractRef;
+    collectionImplementation: ContractRef;
+  };
+  fallback: {
+    creatorFactory721: ContractRef;
+    editionFactory1155: ContractRef;
+    marketplace721: ContractRef;
+    marketplace1155: ContractRef;
+  };
+  seaport: ContractRef;
+  conduitController: ContractRef;
+  seaDrop: ContractRef;
+  creatorFactory: ContractRef;
+  collectionImplementation: ContractRef;
+  marketplace: ContractRef;
+  collection: {
+    address: string;
+    slug: string;
+    name: string;
+    symbol: string;
+    verified: boolean;
+  };
+  artifactPaths: {
+    deployment: string;
+    bootstrap: string;
+    probe: string;
+    runtime: string;
+  };
+};
+
+export type PublicDeployment = {
+  mode: "official" | "fallback" | "mixed" | "blocked";
+  creator: {
+    erc721: CapabilityRef;
+    erc1155: CapabilityRef;
+  };
+  marketplace: {
+    erc721: CapabilityRef;
+    erc1155: CapabilityRef;
+  };
 };
 
 export type PublicAppConfig = {
@@ -76,8 +140,10 @@ export type PublicAppConfig = {
       symbol: string;
       decimals: number;
     };
+    profileTokens: ManagedProfileToken[];
   };
   contracts: PublicContracts;
+  deployment: PublicDeployment;
   services: {
     apiBaseUrl: string;
     webBaseUrl: string;
@@ -112,6 +178,7 @@ export type NodeAppConfig = PublicAppConfig & {
     deployment?: Record<string, unknown>;
     bootstrap?: Record<string, unknown>;
     probe?: Record<string, unknown>;
+    runtime?: Record<string, unknown>;
   };
 };
 

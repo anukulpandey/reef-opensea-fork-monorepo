@@ -17,7 +17,8 @@ import { readJsonFromIpfs, toGatewayUrl } from "./ipfs.js";
 import {
   markContractReady,
   markContractUnavailable,
-  runtimeState
+  runtimeState,
+  setIndexerState
 } from "./runtime.js";
 
 const provider = new JsonRpcProvider(config.rpcUrl, Number(nodeConfig.network.chainId));
@@ -275,6 +276,10 @@ async function syncOnce() {
   if (runtimeState.contracts.marketplace) {
     await syncMarketplaceEvents();
   }
+  setIndexerState({
+    enabled: true,
+    lastIndexedBlock: await provider.getBlockNumber()
+  });
 }
 
 export async function startIndexer() {
@@ -289,6 +294,10 @@ export async function startIndexer() {
 
   if (!collectionReady && !marketplaceReady) {
     console.warn("Indexer disabled because Reef contracts are not live on the configured RPC.");
+    setIndexerState({
+      enabled: false,
+      reason: "No verifiable collection or marketplace contract is configured for indexing."
+    });
     return;
   }
 
@@ -296,6 +305,10 @@ export async function startIndexer() {
   setInterval(() => {
     void syncOnce().catch((error) => {
       console.error("Indexer sync failed", error);
+      setIndexerState({
+        enabled: false,
+        reason: error instanceof Error ? error.message : String(error)
+      });
     });
   }, 10_000);
 }

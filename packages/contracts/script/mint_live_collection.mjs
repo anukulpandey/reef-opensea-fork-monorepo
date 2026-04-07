@@ -44,7 +44,7 @@ const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
 const collection = new Contract(
   deployment.collection,
   [
-    "function mintTo(address to, string tokenUri) external returns (uint256)",
+    "function mintCreator(address to, string tokenUri) external returns (uint256)",
     "function owner() view returns (address)"
   ],
   wallet
@@ -116,7 +116,7 @@ async function main() {
     };
     const tokenUri = await pinJson(metadata, `reef-genesis-${index + 1}.json`);
     const to = item.to ?? process.env.MINT_TO ?? wallet.address;
-    const tx = await collection.mintTo(to, tokenUri);
+    const tx = await collection.mintCreator(to, tokenUri);
     const receipt = await tx.wait();
     minted.push({
       to,

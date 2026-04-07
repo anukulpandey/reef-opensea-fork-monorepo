@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="600" viewBox="0 0 1600 600" fill="none">
+  <rect width="1600" height="600" rx="40" fill="#0F131B"/>
+  <circle cx="1300" cy="120" r="280" fill="#355EFF" fill-opacity="0.24"/>
+  <circle cx="280" cy="520" r="300" fill="#28C9C0" fill-opacity="0.22"/>
+  <circle cx="780" cy="310" r="180" fill="url(#planet)"/>
+  <ellipse cx="780" cy="330" rx="310" ry="88" stroke="rgba(255,255,255,0.42)" stroke-width="24"/>
+  <circle cx="920" cy="205" r="34" fill="rgba(255,255,255,0.16)"/>
+  <text x="96" y="128" fill="rgba(255,255,255,0.88)" font-family="Space Grotesk, Arial, sans-serif" font-size="64" font-weight="700">Reef Collection</text>
+  <text x="96" y="192" fill="rgba(255,255,255,0.54)" font-family="Space Grotesk, Arial, sans-serif" font-size="28">Freshly deployed on the local Reef marketplace stack</text>
+  <defs>
+    <radialGradient id="planet" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(700 220) rotate(51.7) scale(260.747)">
+      <stop stop-color="#D8F7FF"/>
+      <stop offset="0.45" stop-color="#83B8FF"/>
+      <stop offset="1" stop-color="#705CFF"/>
+    </radialGradient>
+  </defs>
+</svg>

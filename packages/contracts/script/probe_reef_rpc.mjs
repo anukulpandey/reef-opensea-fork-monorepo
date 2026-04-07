@@ -1,15 +1,20 @@
 import fs from "node:fs";
 import path from "node:path";
+import { execFileSync } from "node:child_process";
 
 import { resolveNodeAppConfig } from "@reef/config";
 import dotenv from "dotenv";
-import { JsonRpcProvider, Wallet, getCreateAddress } from "ethers";
+import { Wallet } from "ethers";
 
 const rootDir = path.resolve(path.dirname(new URL(import.meta.url).pathname), "../../..");
 dotenv.config({ path: path.join(rootDir, ".env") });
 const appConfig = resolveNodeAppConfig({ cwd: rootDir });
 
-const rpcUrl = process.env.REEF_RPC_URL ?? appConfig.network.rpcUrl;
+const configuredRpcUrl = process.env.REEF_RPC_URL ?? appConfig.network.rpcUrl;
+const rpcUrl =
+  configuredRpcUrl.includes("host.docker.internal") && !process.env.RUNNING_IN_DOCKER
+    ? configuredRpcUrl.replace("host.docker.internal", "127.0.0.1")
+    : configuredRpcUrl;
 const chainId = Number(process.env.REEF_CHAIN_ID ?? String(appConfig.network.chainId));
 const privateKey = process.env.PRIVATE_KEY;
 
@@ -17,8 +22,7 @@ if (!privateKey) {
   throw new Error("PRIVATE_KEY is required");
 }
 
-const provider = new JsonRpcProvider(rpcUrl, chainId);
-const wallet = new Wallet(privateKey, provider);
+const wallet = new Wallet(privateKey);
 const artifactPath = path.join(
   rootDir,
   "packages/contracts/out/ReefDeploymentProbe.sol/ReefDeploymentProbe.json"
@@ -28,6 +32,8 @@ const outputPath = path.join(
   "packages/contracts/deployments",
   `reef-probe-${chainId}.json`
 );
+const reviveBinaryPath = path.join(rootDir, "tools/revive-deployer/target/debug/revive-deployer");
+const reviveManifestPath = path.join(rootDir, "tools/revive-deployer/Cargo.toml");
 
 function readArtifact() {
   if (!fs.existsSync(artifactPath)) {
@@ -36,26 +42,38 @@ function readArtifact() {
   return JSON.parse(fs.readFileSync(artifactPath, "utf8"));
 }
 
+function ensureReviveDeployerBuilt() {
+  if (fs.existsSync(reviveBinaryPath)) {
+    return;
+  }
+  execFileSync("cargo", ["build", "--manifest-path", reviveManifestPath], {
+    cwd: rootDir,
+    stdio: "inherit",
+    env: process.env
+  });
+}
+
+function deployWithRevive() {
+  ensureReviveDeployerBuilt();
+  const stdout = execFileSync(reviveBinaryPath, {
+    cwd: rootDir,
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      PRIVATE_KEY: privateKey,
+      REEF_RPC_URL: rpcUrl,
+      ARTIFACT_JSON_PATH: artifactPath
+    }
+  });
+  return JSON.parse(stdout);
+}
+
 async function main() {
   try {
-    const artifact = readArtifact();
-    const gasPrice = BigInt(process.env.REEF_GAS_PRICE_WEI ?? "100000000");
-    const gasLimit = BigInt(process.env.REEF_GAS_LIMIT ?? "2000000");
-    const nonce = await provider.getTransactionCount(wallet.address, "pending");
-    const predictedAddress = getCreateAddress({ from: wallet.address, nonce });
-
-    const transaction = await wallet.sendTransaction({
-      type: 0,
-      nonce,
-      data: artifact.bytecode.object,
-      gasPrice,
-      gasLimit
-    });
-
-    const receipt = await transaction.wait();
-    const probeAddress = receipt?.contractAddress ?? predictedAddress;
-    const code = await provider.getCode(probeAddress);
-    const verified = code !== "0x";
+    readArtifact();
+    const deployment = deployWithRevive();
+    const probeAddress = deployment.contract_address;
+    const verified = Boolean(deployment.ok);
 
     const payload = {
       chainId,
@@ -63,8 +81,11 @@ async function main() {
       deployer: wallet.address,
       probeAddress,
       verified,
-      txHash: transaction.hash,
-      blockNumber: receipt?.blockNumber ?? null,
+      txHash: deployment.tx_hash,
+      blockNumber: Number(deployment.block_number ?? 0),
+      gasEstimated: deployment.gas_estimated,
+      gasUsed: deployment.gas_used,
+      codeLength: deployment.code_len,
       note: verified
         ? "Probe contract returned bytecode successfully."
         : "Probe transaction mined, but eth_getCode returned 0x for the resulting address."

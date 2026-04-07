@@ -20,6 +20,14 @@ async function expectJson(route) {
   return response.json();
 }
 
+async function expectJsonRequest(route, init) {
+  const response = await fetch(`${apiBaseUrl}${route}`, init);
+  if (!response.ok) {
+    throw new Error(`API request failed ${route}: ${response.status}`);
+  }
+  return response.json();
+}
+
 async function expectHtml(route) {
   const response = await fetch(`${webBaseUrl}${route}`);
   if (!response.ok) {
@@ -31,15 +39,25 @@ async function expectHtml(route) {
   }
 }
 
+async function expectPublicAsset(url) {
+  const absoluteUrl = url.startsWith("http") ? url : `${apiBaseUrl}${url}`;
+  const response = await fetch(absoluteUrl, { method: "HEAD" });
+  if (!response.ok) {
+    throw new Error(`Public asset failed ${url}: ${response.status}`);
+  }
+}
+
 const bootstrap = await expectJson("/bootstrap");
+const collectionsIndex = await expectJson("/dataset/collections");
+const connectedProfile = await expectJson(
+  "/dataset/profile/0x212e2A4545ee7AC59837212F9860DbC245090B6f"
+);
 const creatorSlug = bootstrap.featuredCollections?.[0]?.creatorSlug ?? "reef-admin";
-const collectionAddress =
-  bootstrap.featuredCollections?.[0]?.contractAddress ??
-  bootstrap.config.contracts.collection.address ??
-  "";
-const collectionSlug = collectionAddress
-  ? bootstrap.featuredCollections?.[0]?.slug ?? bootstrap.config.contracts.collection.slug ?? ""
-  : "";
+const primaryCollection =
+  collectionsIndex.collections?.[0] ??
+  bootstrap.featuredCollections?.[0] ??
+  null;
+const collectionSlug = primaryCollection?.slug ?? "";
 
 let sampleContract = "";
 let sampleTokenId = "";
@@ -80,6 +98,8 @@ const webRoutes = [
   "/tokens",
   "/swap",
   "/create",
+  "/create?collection=heatblast&batch=1",
+  "/create/drop",
   "/create/collection",
   "/drops",
   "/activity",
@@ -89,7 +109,15 @@ const webRoutes = [
   "/admin",
   "/profile",
   "/profile/created",
-  `/${creatorSlug}/created`
+  `/${creatorSlug}/created`,
+  "/profile/0x212e2A4545ee7AC59837212F9860DbC245090B6f?tab=galleries",
+  "/profile/0x212e2A4545ee7AC59837212F9860DbC245090B6f?tab=items&q=heat",
+  "/profile/0x212e2A4545ee7AC59837212F9860DbC245090B6f?tab=tokens",
+  "/profile/0x212e2A4545ee7AC59837212F9860DbC245090B6f?tab=portfolio",
+  "/profile/0x212e2A4545ee7AC59837212F9860DbC245090B6f?tab=listings",
+  "/profile/0x212e2A4545ee7AC59837212F9860DbC245090B6f?tab=offers",
+  "/profile/0x212e2A4545ee7AC59837212F9860DbC245090B6f?tab=created",
+  "/profile/0x212e2A4545ee7AC59837212F9860DbC245090B6f?tab=activity"
 ];
 
 if (collectionSlug) {
@@ -115,9 +143,61 @@ for (const route of apiRoutes) {
   console.log(`api ok  ${route}`);
 }
 
+const sampleIpfsJson = await expectJsonRequest("/ipfs/json", {
+  method: "POST",
+  headers: {
+    "Content-Type": "application/json"
+  },
+  body: JSON.stringify({
+    filename: "smoke-metadata.json",
+    payload: {
+      name: "Smoke Metadata",
+      description: "Collection/IPFS smoke fallback"
+    }
+  })
+});
+
+if (!sampleIpfsJson?.uri || !sampleIpfsJson?.gatewayUrl) {
+  throw new Error("IPFS JSON smoke request did not return uri/gatewayUrl");
+}
+console.log("api ok  /ipfs/json");
+
+const sampleIpfsFile = await expectJsonRequest("/ipfs/file", {
+  method: "POST",
+  headers: {
+    "Content-Type": "application/json"
+  },
+  body: JSON.stringify({
+    filename: "smoke-asset.svg",
+    contentType: "image/svg+xml",
+    dataUrl:
+      "data:image/svg+xml;utf8," +
+      encodeURIComponent(
+        '<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64"><rect width="64" height="64" rx="16" fill="#111315"/><circle cx="32" cy="32" r="20" fill="#2081e2"/></svg>'
+      )
+  })
+});
+
+if (!sampleIpfsFile?.uri || !sampleIpfsFile?.gatewayUrl) {
+  throw new Error("IPFS file smoke request did not return uri/gatewayUrl");
+}
+console.log("api ok  /ipfs/file");
+
 for (const route of webRoutes) {
   await expectHtml(route);
   console.log(`web ok  ${route}`);
+}
+
+const profileImages = [
+  connectedProfile?.createdItems?.[0]?.imageUrl,
+  primaryCollection?.featuredImageUrls?.[0],
+  sampleIpfsJson?.gatewayUrl,
+  sampleIpfsFile?.gatewayUrl
+].filter((value) => typeof value === "string" && value.startsWith("/storage/"));
+
+for (const assetUrl of profileImages) {
+  await expectPublicAsset(assetUrl);
+  console.log(`asset ok ${assetUrl}`);
 }
 
 console.log("Route smoke check completed successfully.");

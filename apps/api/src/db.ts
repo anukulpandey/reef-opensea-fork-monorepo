@@ -89,8 +89,28 @@ export type CreatorCollectionRecord = {
   description: string;
   avatarUrl: string;
   bannerUrl: string;
+  chainKey: string;
+  chainName: string;
+  standard: string;
+  deploymentMode: string;
+  factoryAddress: string;
+  marketplaceMode: string;
   contractUri: string;
+  contractAddress: string;
+  deploymentTxHash: string;
   status: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type UserRecord = {
+  address: string;
+  displayName: string;
+  bio: string;
+  avatarUri: string;
+  bannerUri: string;
+  links: Record<string, string>;
+  role: string;
   createdAt: string;
   updatedAt: string;
 };
@@ -166,6 +186,26 @@ export async function initializeDatabase() {
         state_value TEXT NOT NULL
       );
 
+      CREATE TABLE IF NOT EXISTS users (
+        address TEXT PRIMARY KEY,
+        display_name TEXT NOT NULL DEFAULT '',
+        bio TEXT NOT NULL DEFAULT '',
+        avatar_uri TEXT NOT NULL DEFAULT '',
+        banner_uri TEXT NOT NULL DEFAULT '',
+        links_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        role TEXT NOT NULL DEFAULT 'user',
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+
+      CREATE TABLE IF NOT EXISTS auth_nonces (
+        address TEXT PRIMARY KEY,
+        nonce TEXT NOT NULL,
+        expires_at TIMESTAMPTZ NOT NULL,
+        consumed_at TIMESTAMPTZ,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+
       CREATE TABLE IF NOT EXISTS admin_drops (
         slug TEXT PRIMARY KEY,
         name TEXT NOT NULL,
@@ -192,7 +232,15 @@ export async function initializeDatabase() {
         description TEXT NOT NULL DEFAULT '',
         avatar_url TEXT NOT NULL DEFAULT '',
         banner_url TEXT NOT NULL DEFAULT '',
+        chain_key TEXT NOT NULL DEFAULT 'reef',
+        chain_name TEXT NOT NULL DEFAULT 'Reef Chain',
+        standard TEXT NOT NULL DEFAULT 'ERC721',
+        deployment_mode TEXT NOT NULL DEFAULT 'seadrop',
+        factory_address TEXT NOT NULL DEFAULT '',
+        marketplace_mode TEXT NOT NULL DEFAULT '',
         contract_uri TEXT NOT NULL DEFAULT '',
+        contract_address TEXT NOT NULL DEFAULT '',
+        deployment_tx_hash TEXT NOT NULL DEFAULT '',
         status TEXT NOT NULL DEFAULT 'draft',
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -204,13 +252,40 @@ export async function initializeDatabase() {
         ON sales (collection_address, block_number DESC);
       CREATE INDEX IF NOT EXISTS transfers_collection_block_idx
         ON transfers (collection_address, block_number DESC);
+      CREATE INDEX IF NOT EXISTS users_role_idx
+        ON users (role, updated_at DESC);
       CREATE INDEX IF NOT EXISTS admin_drops_stage_archived_idx
         ON admin_drops (stage, archived, updated_at DESC);
       CREATE INDEX IF NOT EXISTS creator_collections_owner_idx
         ON creator_collections (owner_address, updated_at DESC);
+
+      ALTER TABLE creator_collections
+        ADD COLUMN IF NOT EXISTS chain_key TEXT NOT NULL DEFAULT 'reef';
+      ALTER TABLE creator_collections
+        ADD COLUMN IF NOT EXISTS chain_name TEXT NOT NULL DEFAULT 'Reef Chain';
+      ALTER TABLE creator_collections
+        ADD COLUMN IF NOT EXISTS standard TEXT NOT NULL DEFAULT 'ERC721';
+      ALTER TABLE creator_collections
+        ADD COLUMN IF NOT EXISTS deployment_mode TEXT NOT NULL DEFAULT 'seadrop';
+      ALTER TABLE creator_collections
+        ADD COLUMN IF NOT EXISTS factory_address TEXT NOT NULL DEFAULT '';
+      ALTER TABLE creator_collections
+        ADD COLUMN IF NOT EXISTS marketplace_mode TEXT NOT NULL DEFAULT '';
+      ALTER TABLE creator_collections
+        ADD COLUMN IF NOT EXISTS contract_address TEXT NOT NULL DEFAULT '';
+      ALTER TABLE creator_collections
+        ADD COLUMN IF NOT EXISTS deployment_tx_hash TEXT NOT NULL DEFAULT '';
     `);
 
     await setSyncState("deployment_chain_id", String(nodeConfig.network.chainId));
+
+    for (const adminWallet of config.adminWallets) {
+      await upsertUserProfile({
+        address: adminWallet,
+        role: "admin"
+      });
+    }
+
     markDatabaseReady();
   } catch (error) {
     markDatabaseUnavailable(error);
@@ -367,6 +442,87 @@ export async function listNfts(collectionAddress: string) {
   return result.rows as NftRecord[];
 }
 
+export async function listNftsForAddress(address: string) {
+  const normalizedAddress = address.toLowerCase();
+  const result = await pool.query(
+    `
+      SELECT
+        collection_slug AS "collectionSlug",
+        collection_address AS "collectionAddress",
+        token_id AS "tokenId",
+        name,
+        description,
+        image_url AS "imageUrl",
+        metadata_uri AS "metadataUri",
+        owner_address AS "ownerAddress",
+        creator_address AS "creatorAddress",
+        attributes_json AS attributes,
+        minted_at AS "mintedAt",
+        updated_at AS "updatedAt"
+      FROM nfts
+      WHERE owner_address = $1 OR creator_address = $1
+      ORDER BY minted_at DESC, updated_at DESC
+    `,
+    [normalizedAddress]
+  );
+
+  return result.rows as NftRecord[];
+}
+
+export async function listOwnedNftsForAddress(address: string) {
+  const normalizedAddress = address.toLowerCase();
+  const result = await pool.query(
+    `
+      SELECT
+        collection_slug AS "collectionSlug",
+        collection_address AS "collectionAddress",
+        token_id AS "tokenId",
+        name,
+        description,
+        image_url AS "imageUrl",
+        metadata_uri AS "metadataUri",
+        owner_address AS "ownerAddress",
+        creator_address AS "creatorAddress",
+        attributes_json AS attributes,
+        minted_at AS "mintedAt",
+        updated_at AS "updatedAt"
+      FROM nfts
+      WHERE owner_address = $1
+      ORDER BY minted_at DESC, updated_at DESC
+    `,
+    [normalizedAddress]
+  );
+
+  return result.rows as NftRecord[];
+}
+
+export async function listCreatedNftsForAddress(address: string) {
+  const normalizedAddress = address.toLowerCase();
+  const result = await pool.query(
+    `
+      SELECT
+        collection_slug AS "collectionSlug",
+        collection_address AS "collectionAddress",
+        token_id AS "tokenId",
+        name,
+        description,
+        image_url AS "imageUrl",
+        metadata_uri AS "metadataUri",
+        owner_address AS "ownerAddress",
+        creator_address AS "creatorAddress",
+        attributes_json AS attributes,
+        minted_at AS "mintedAt",
+        updated_at AS "updatedAt"
+      FROM nfts
+      WHERE creator_address = $1
+      ORDER BY minted_at DESC, updated_at DESC
+    `,
+    [normalizedAddress]
+  );
+
+  return result.rows as NftRecord[];
+}
+
 export async function upsertListingCreated(input: {
   listingId: string;
   marketplaceAddress: string;
@@ -445,6 +601,8 @@ export async function listListings(filters?: {
   collectionAddress?: string;
   status?: string;
   tokenId?: string;
+  seller?: string;
+  buyer?: string;
 }) {
   const values: string[] = [];
   const clauses: string[] = [];
@@ -462,6 +620,16 @@ export async function listListings(filters?: {
   if (filters?.tokenId) {
     values.push(filters.tokenId);
     clauses.push(`token_id = $${values.length}`);
+  }
+
+  if (filters?.seller) {
+    values.push(filters.seller.toLowerCase());
+    clauses.push(`seller = $${values.length}`);
+  }
+
+  if (filters?.buyer) {
+    values.push(filters.buyer.toLowerCase());
+    clauses.push(`buyer = $${values.length}`);
   }
 
   const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
@@ -500,14 +668,21 @@ export async function getListingByToken(collectionAddress: string, tokenId: stri
   return result[0] ?? null;
 }
 
-export async function listSales(limit = 50, collectionAddress?: string) {
+export async function listSales(limit = 50, collectionAddress?: string, address?: string) {
   const values: Array<number | string> = [limit];
-  let whereClause = "";
+  const clauses: string[] = [];
 
   if (collectionAddress) {
     values.push(collectionAddress.toLowerCase());
-    whereClause = `WHERE collection_address = $2`;
+    clauses.push(`collection_address = $${values.length}`);
   }
+
+  if (address) {
+    values.push(address.toLowerCase());
+    clauses.push(`(seller = $${values.length} OR buyer = $${values.length})`);
+  }
+
+  const whereClause = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
 
   const result = await pool.query(
     `
@@ -617,6 +792,7 @@ export async function insertTransfer(input: {
 export async function listTransfers(limit = 100, filters?: {
   collectionAddress?: string;
   tokenId?: string;
+  address?: string;
 }) {
   const values: Array<number | string> = [limit];
   const clauses: string[] = [];
@@ -629,6 +805,11 @@ export async function listTransfers(limit = 100, filters?: {
   if (filters?.tokenId) {
     values.push(filters.tokenId);
     clauses.push(`token_id = $${values.length}`);
+  }
+
+  if (filters?.address) {
+    values.push(filters.address.toLowerCase());
+    clauses.push(`(from_address = $${values.length} OR to_address = $${values.length})`);
   }
 
   const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
@@ -670,6 +851,137 @@ export async function listHolders(collectionAddress: string) {
   );
 
   return result.rows as Array<{ ownerAddress: string; quantity: number }>;
+}
+
+export async function getUserByAddress(address: string) {
+  const normalizedAddress = address.toLowerCase();
+  const result = await pool.query(
+    `
+      SELECT
+        address,
+        display_name AS "displayName",
+        bio,
+        avatar_uri AS "avatarUri",
+        banner_uri AS "bannerUri",
+        links_json AS links,
+        role,
+        created_at AS "createdAt",
+        updated_at AS "updatedAt"
+      FROM users
+      WHERE address = $1
+      LIMIT 1
+    `,
+    [normalizedAddress]
+  );
+
+  return (result.rows[0] as UserRecord | undefined) ?? null;
+}
+
+export async function searchUsers(query: string, limit = 20) {
+  const normalizedQuery = `%${query.trim().toLowerCase()}%`;
+  const result = await pool.query(
+    `
+      SELECT
+        address,
+        display_name AS "displayName",
+        bio,
+        avatar_uri AS "avatarUri",
+        banner_uri AS "bannerUri",
+        links_json AS links,
+        role,
+        created_at AS "createdAt",
+        updated_at AS "updatedAt"
+      FROM users
+      WHERE
+        lower(address) LIKE $1
+        OR lower(display_name) LIKE $1
+      ORDER BY updated_at DESC
+      LIMIT $2
+    `,
+    [normalizedQuery, limit]
+  );
+
+  return result.rows as UserRecord[];
+}
+
+export async function upsertUserProfile(input: {
+  address: string;
+  displayName?: string;
+  bio?: string;
+  avatarUri?: string;
+  bannerUri?: string;
+  links?: Record<string, string>;
+  role?: string;
+}) {
+  await pool.query(
+    `
+      INSERT INTO users (
+        address,
+        display_name,
+        bio,
+        avatar_uri,
+        banner_uri,
+        links_json,
+        role,
+        created_at,
+        updated_at
+      )
+      VALUES ($1,$2,$3,$4,$5,$6,$7,NOW(),NOW())
+      ON CONFLICT (address)
+      DO UPDATE SET
+        display_name = CASE WHEN EXCLUDED.display_name = '' THEN users.display_name ELSE EXCLUDED.display_name END,
+        bio = CASE WHEN EXCLUDED.bio = '' THEN users.bio ELSE EXCLUDED.bio END,
+        avatar_uri = CASE WHEN EXCLUDED.avatar_uri = '' THEN users.avatar_uri ELSE EXCLUDED.avatar_uri END,
+        banner_uri = CASE WHEN EXCLUDED.banner_uri = '' THEN users.banner_uri ELSE EXCLUDED.banner_uri END,
+        links_json = CASE WHEN EXCLUDED.links_json = '{}'::jsonb THEN users.links_json ELSE EXCLUDED.links_json END,
+        role = CASE WHEN EXCLUDED.role = '' THEN users.role ELSE EXCLUDED.role END,
+        updated_at = NOW()
+    `,
+    [
+      input.address.toLowerCase(),
+      input.displayName ?? "",
+      input.bio ?? "",
+      input.avatarUri ?? "",
+      input.bannerUri ?? "",
+      JSON.stringify(input.links ?? {}),
+      input.role ?? ""
+    ]
+  );
+}
+
+export async function createAuthNonce(address: string, nonce: string, expiresAt: string) {
+  await pool.query(
+    `
+      INSERT INTO auth_nonces (address, nonce, expires_at, consumed_at, updated_at)
+      VALUES ($1,$2,$3,NULL,NOW())
+      ON CONFLICT (address)
+      DO UPDATE SET
+        nonce = EXCLUDED.nonce,
+        expires_at = EXCLUDED.expires_at,
+        consumed_at = NULL,
+        updated_at = NOW()
+    `,
+    [address.toLowerCase(), nonce, expiresAt]
+  );
+}
+
+export async function consumeAuthNonce(address: string, nonce: string) {
+  const normalizedAddress = address.toLowerCase();
+  const result = await pool.query(
+    `
+      UPDATE auth_nonces
+      SET consumed_at = NOW(), updated_at = NOW()
+      WHERE
+        address = $1
+        AND nonce = $2
+        AND consumed_at IS NULL
+        AND expires_at > NOW()
+      RETURNING nonce
+    `,
+    [normalizedAddress, nonce]
+  );
+
+  return (result.rowCount ?? 0) > 0;
 }
 
 export async function listAdminDrops(options?: {
@@ -812,7 +1124,15 @@ export async function listCreatorCollections(ownerAddress?: string) {
         description,
         avatar_url AS "avatarUrl",
         banner_url AS "bannerUrl",
+        chain_key AS "chainKey",
+        chain_name AS "chainName",
+        standard,
+        deployment_mode AS "deploymentMode",
+        factory_address AS "factoryAddress",
+        marketplace_mode AS "marketplaceMode",
         contract_uri AS "contractUri",
+        contract_address AS "contractAddress",
+        deployment_tx_hash AS "deploymentTxHash",
         status,
         created_at AS "createdAt",
         updated_at AS "updatedAt"
@@ -837,7 +1157,15 @@ export async function getCreatorCollectionBySlug(slug: string) {
         description,
         avatar_url AS "avatarUrl",
         banner_url AS "bannerUrl",
+        chain_key AS "chainKey",
+        chain_name AS "chainName",
+        standard,
+        deployment_mode AS "deploymentMode",
+        factory_address AS "factoryAddress",
+        marketplace_mode AS "marketplaceMode",
         contract_uri AS "contractUri",
+        contract_address AS "contractAddress",
+        deployment_tx_hash AS "deploymentTxHash",
         status,
         created_at AS "createdAt",
         updated_at AS "updatedAt"
@@ -851,6 +1179,40 @@ export async function getCreatorCollectionBySlug(slug: string) {
   return (result.rows[0] as CreatorCollectionRecord | undefined) ?? null;
 }
 
+export async function getCreatorCollectionByAddress(contractAddress: string) {
+  const normalizedAddress = contractAddress.toLowerCase();
+  const result = await pool.query(
+    `
+      SELECT
+        slug,
+        owner_address AS "ownerAddress",
+        name,
+        symbol,
+        description,
+        avatar_url AS "avatarUrl",
+        banner_url AS "bannerUrl",
+        chain_key AS "chainKey",
+        chain_name AS "chainName",
+        standard,
+        deployment_mode AS "deploymentMode",
+        factory_address AS "factoryAddress",
+        marketplace_mode AS "marketplaceMode",
+        contract_uri AS "contractUri",
+        contract_address AS "contractAddress",
+        deployment_tx_hash AS "deploymentTxHash",
+        status,
+        created_at AS "createdAt",
+        updated_at AS "updatedAt"
+      FROM creator_collections
+      WHERE lower(contract_address) = $1
+      LIMIT 1
+    `,
+    [normalizedAddress]
+  );
+
+  return (result.rows[0] as CreatorCollectionRecord | undefined) ?? null;
+}
+
 export async function upsertCreatorCollection(input: {
   slug: string;
   ownerAddress: string;
@@ -859,7 +1221,15 @@ export async function upsertCreatorCollection(input: {
   description: string;
   avatarUrl: string;
   bannerUrl: string;
+  chainKey: string;
+  chainName: string;
+  standard: string;
+  deploymentMode: string;
+  factoryAddress?: string;
+  marketplaceMode?: string;
   contractUri: string;
+  contractAddress: string;
+  deploymentTxHash: string;
   status: string;
 }) {
   await pool.query(
@@ -872,12 +1242,20 @@ export async function upsertCreatorCollection(input: {
         description,
         avatar_url,
         banner_url,
+        chain_key,
+        chain_name,
+        standard,
+        deployment_mode,
+        factory_address,
+        marketplace_mode,
         contract_uri,
+        contract_address,
+        deployment_tx_hash,
         status,
         created_at,
         updated_at
       )
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,NOW(),NOW())
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,NOW(),NOW())
       ON CONFLICT (slug)
       DO UPDATE SET
         owner_address = EXCLUDED.owner_address,
@@ -886,9 +1264,18 @@ export async function upsertCreatorCollection(input: {
         description = EXCLUDED.description,
         avatar_url = EXCLUDED.avatar_url,
         banner_url = EXCLUDED.banner_url,
+        chain_key = EXCLUDED.chain_key,
+        chain_name = EXCLUDED.chain_name,
+        standard = EXCLUDED.standard,
+        deployment_mode = EXCLUDED.deployment_mode,
+        factory_address = EXCLUDED.factory_address,
+        marketplace_mode = EXCLUDED.marketplace_mode,
         contract_uri = EXCLUDED.contract_uri,
+        contract_address = EXCLUDED.contract_address,
+        deployment_tx_hash = EXCLUDED.deployment_tx_hash,
         status = EXCLUDED.status,
         updated_at = NOW()
+      WHERE creator_collections.status <> 'ready' OR EXCLUDED.status = 'ready'
     `,
     [
       input.slug,
@@ -898,7 +1285,15 @@ export async function upsertCreatorCollection(input: {
       input.description,
       input.avatarUrl,
       input.bannerUrl,
+      input.chainKey,
+      input.chainName,
+      input.standard,
+      input.deploymentMode,
+      input.factoryAddress ?? "",
+      input.marketplaceMode ?? "",
       input.contractUri,
+      input.contractAddress,
+      input.deploymentTxHash,
       input.status
     ]
   );

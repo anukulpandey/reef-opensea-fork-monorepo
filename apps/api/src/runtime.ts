@@ -1,15 +1,40 @@
-type ContractKey = "collection" | "marketplace";
+type CoreContractKey = "collection" | "marketplace";
+type CapabilityDomain = "creator" | "marketplace";
+type CapabilityStandard = "erc721" | "erc1155";
+
+type CapabilityStatus = {
+  enabled: boolean;
+  mode: "official" | "fallback" | "mixed" | "blocked";
+  address?: string;
+  factoryAddress?: string;
+  implementationAddress?: string;
+  marketplaceMode?: "official" | "fallback" | "mixed" | "blocked";
+  reason?: string;
+};
 
 type RuntimeState = {
   databaseReady: boolean;
   ipfsReady: boolean;
   storageReady: boolean;
-  contracts: Record<ContractKey, boolean>;
+  contracts: Record<CoreContractKey, boolean>;
+  capabilities: Record<CapabilityDomain, Record<CapabilityStandard, CapabilityStatus>>;
+  deploymentMode: "official" | "fallback" | "mixed" | "blocked";
   databaseReason?: string;
   ipfsReason?: string;
   storageReason?: string;
-  contractReasons: Partial<Record<ContractKey, string>>;
+  contractReasons: Partial<Record<CoreContractKey, string>>;
+  indexer: {
+    enabled: boolean;
+    lastIndexedBlock: number;
+    reason?: string;
+  };
 };
+
+const blockedCapability = (): CapabilityStatus => ({
+  enabled: false,
+  mode: "blocked",
+  reason: "Capability is unavailable."
+});
 
 export const runtimeState: RuntimeState = {
   databaseReady: false,
@@ -19,7 +44,22 @@ export const runtimeState: RuntimeState = {
     collection: false,
     marketplace: false
   },
-  contractReasons: {}
+  capabilities: {
+    creator: {
+      erc721: blockedCapability(),
+      erc1155: blockedCapability()
+    },
+    marketplace: {
+      erc721: blockedCapability(),
+      erc1155: blockedCapability()
+    }
+  },
+  deploymentMode: "blocked",
+  contractReasons: {},
+  indexer: {
+    enabled: false,
+    lastIndexedBlock: 0
+  }
 };
 
 export function markDatabaseReady() {
@@ -52,13 +92,37 @@ export function markStorageUnavailable(reason: unknown) {
   runtimeState.storageReason = reason instanceof Error ? reason.message : String(reason);
 }
 
-export function markContractReady(contract: ContractKey) {
+export function markContractReady(contract: CoreContractKey) {
   runtimeState.contracts[contract] = true;
   delete runtimeState.contractReasons[contract];
 }
 
-export function markContractUnavailable(contract: ContractKey, reason: unknown) {
+export function markContractUnavailable(contract: CoreContractKey, reason: unknown) {
   runtimeState.contracts[contract] = false;
   runtimeState.contractReasons[contract] =
     reason instanceof Error ? reason.message : String(reason);
+}
+
+export function setCapability(
+  domain: CapabilityDomain,
+  standard: CapabilityStandard,
+  capability: CapabilityStatus
+) {
+  runtimeState.capabilities[domain][standard] = capability;
+}
+
+export function setDeploymentMode(mode: RuntimeState["deploymentMode"]) {
+  runtimeState.deploymentMode = mode;
+}
+
+export function setIndexerState(input: {
+  enabled: boolean;
+  lastIndexedBlock?: number;
+  reason?: string;
+}) {
+  runtimeState.indexer = {
+    enabled: input.enabled,
+    lastIndexedBlock: input.lastIndexedBlock ?? runtimeState.indexer.lastIndexedBlock,
+    reason: input.reason
+  };
 }

@@ -2,7 +2,7 @@
   "site": {
     "name": "OpenSea",
     "tagline": "exchange everything",
-    "description": "An OpenSea-style read-only marketplace shell for Reef while live contract deployment remains unavailable.",
+    "description": "An OpenSea-style NFT marketplace for Reef with creator flows, drops, and capability-based contract routing.",
     "supportEmail": "support@opensea.local",
     "themeMode": "opensea-dark",
     "nav": [
@@ -72,9 +72,51 @@
       "name": "Reef",
       "symbol": "REEF",
       "decimals": 18
-    }
+    },
+    "profileTokens": []
   },
   "contracts": {
+    "official": {
+      "seaport": {
+        "address": "",
+        "verified": false
+      },
+      "conduitController": {
+        "address": "",
+        "verified": false
+      },
+      "seaDrop": {
+        "address": "",
+        "verified": false,
+        "sourceRepo": "external/projectopensea/seadrop"
+      },
+      "creatorFactory": {
+        "address": "",
+        "verified": false
+      },
+      "collectionImplementation": {
+        "address": "",
+        "verified": false
+      }
+    },
+    "fallback": {
+      "creatorFactory721": {
+        "address": "",
+        "verified": false
+      },
+      "editionFactory1155": {
+        "address": "",
+        "verified": false
+      },
+      "marketplace721": {
+        "address": "",
+        "verified": false
+      },
+      "marketplace1155": {
+        "address": "",
+        "verified": false
+      }
+    },
     "seaport": {
       "address": "",
       "verified": false
@@ -111,7 +153,43 @@
     "artifactPaths": {
       "deployment": "packages/contracts/deployments/reef-13939.json",
       "bootstrap": "packages/contracts/deployments/reef-bootstrap-13939.json",
-      "probe": "packages/contracts/deployments/reef-probe-13939.json"
+      "probe": "packages/contracts/deployments/reef-probe-13939.json",
+      "runtime": "packages/contracts/deployments/reef-runtime-13939.json"
+    }
+  },
+  "deployment": {
+    "mode": "blocked",
+    "creator": {
+      "erc721": {
+        "enabled": false,
+        "mode": "blocked",
+        "factoryAddress": "",
+        "implementationAddress": "",
+        "marketplaceMode": "blocked",
+        "reason": "Creator deployment has not been configured."
+      },
+      "erc1155": {
+        "enabled": false,
+        "mode": "blocked",
+        "factoryAddress": "",
+        "implementationAddress": "",
+        "marketplaceMode": "blocked",
+        "reason": "Edition deployment has not been configured."
+      }
+    },
+    "marketplace": {
+      "erc721": {
+        "enabled": false,
+        "mode": "blocked",
+        "address": "",
+        "reason": "ERC721 trading is not configured."
+      },
+      "erc1155": {
+        "enabled": false,
+        "mode": "blocked",
+        "address": "",
+        "reason": "ERC1155 trading is not configured."
+      }
     }
   },
   "services": {

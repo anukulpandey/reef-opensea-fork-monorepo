@@ -32,9 +32,11 @@ trap 'rm -rf "$tmp_dir"' EXIT
 curl -sS "${API_BASE_URL}/bootstrap" -o "$tmp_dir/bootstrap.json"
 bootstrap_json="$(cat "$tmp_dir/bootstrap.json")"
 printf '%s' "$bootstrap_json" | json_assert
+curl -sS "${API_BASE_URL}/dataset/collections" -o "$tmp_dir/collections.json"
+collections_json="$(cat "$tmp_dir/collections.json")"
+printf '%s' "$collections_json" | json_assert
 creator_slug="$(printf '%s' "$bootstrap_json" | node -e 'const data = JSON.parse(require("node:fs").readFileSync(0, "utf8")); process.stdout.write(data.featuredCollections[0]?.creatorSlug ?? "reef-admin")')"
-collection_address="$(printf '%s' "$bootstrap_json" | node -e 'const data = JSON.parse(require("node:fs").readFileSync(0, "utf8")); process.stdout.write(data.featuredCollections[0]?.contractAddress ?? data.config.contracts.collection.address ?? "")')"
-collection_slug="$(printf '%s' "$bootstrap_json" | node -e 'const data = JSON.parse(require("node:fs").readFileSync(0, "utf8")); const address = data.featuredCollections[0]?.contractAddress ?? data.config.contracts.collection.address ?? ""; process.stdout.write(address ? (data.featuredCollections[0]?.slug ?? data.config.contracts.collection.slug ?? "") : "")')"
+collection_slug="$(printf '%s' "$collections_json" | node -e 'const data = JSON.parse(require("node:fs").readFileSync(0, "utf8")); process.stdout.write(data.collections[0]?.slug ?? "")')"
 
 sample_contract=""
 sample_token_id=""
@@ -77,6 +79,7 @@ web_routes=(
   "/tokens"
   "/swap"
   "/create"
+  "/create/drop"
   "/create/collection"
   "/drops"
   "/activity"

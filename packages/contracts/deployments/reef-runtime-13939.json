@@ -1,0 +1,100 @@
+{
+  "chainId": 13939,
+  "chainName": "Reef Chain",
+  "rpcUrl": "http://127.0.0.1:8545",
+  "deployer": "0x212e2A4545ee7AC59837212F9860DbC245090B6f",
+  "generatedAt": "2026-04-07T17:37:50.782Z",
+  "probe": {
+    "verified": true,
+    "address": "0xce3f75b12ca7128a3d3cebd806b5a5a88467d9b7",
+    "txHash": "0x4680b588008501fdcbfcc46b536e5d7a997dc763bfa81122c4d9144e1955be2f",
+    "blockNumber": 25,
+    "reason": "Reef returned bytecode for the deployment probe."
+  },
+  "contracts": {
+    "official": {
+      "seaport": {
+        "address": "0x8fC9Fe992499cDAa7dF14025f3ADaE385272D8C4",
+        "verified": false
+      },
+      "conduitController": {
+        "address": "0xEC163d04A56A4592D9EbFBF42aE9eb5aB5161F0E",
+        "verified": false
+      },
+      "seaDrop": {
+        "address": "",
+        "verified": false
+      },
+      "creatorFactory": {
+        "address": "",
+        "verified": false
+      },
+      "collectionImplementation": {
+        "address": "",
+        "verified": false
+      }
+    },
+    "fallback": {
+      "creatorFactory721": {
+        "address": "0x5da80f08835b6be25233a8ac7f20593ce277697a",
+        "verified": true,
+        "deploymentTxHash": "0xa597e6b5b908a1c7a10be35984696139aef617775b3bc72ee3837912efa3c5d4",
+        "blockNumber": 26
+      },
+      "editionFactory1155": {
+        "address": "0xf1f7ef041e0602c40b1f92d41afe6a4c9e114027",
+        "verified": true,
+        "deploymentTxHash": "0x707cd780da6c878cbd64e376a678be9f59520921836bd748bc406072699a406a",
+        "blockNumber": 27
+      },
+      "marketplace721": {
+        "address": "0xdbd5a41a5d1d787c23073fadb234eb2512178248",
+        "verified": true,
+        "deploymentTxHash": "0x3f121fda0108b5e31dfef04fafd95510932a640df27cd576b12911db38445e4a",
+        "blockNumber": 28
+      },
+      "marketplace1155": {
+        "address": "0xa62efe6d9688ab2c7d19c654713e8f25d8c6dd9e",
+        "verified": true,
+        "deploymentTxHash": "0x727b3f56d5cc2e34f8428eb2de139456176dcf7fe087871748001fa01614ef46",
+        "blockNumber": 29
+      }
+    }
+  },
+  "deployment": {
+    "mode": "fallback",
+    "creator": {
+      "erc721": {
+        "enabled": true,
+        "mode": "fallback",
+        "factoryAddress": "0x5da80f08835b6be25233a8ac7f20593ce277697a",
+        "implementationAddress": "",
+        "marketplaceMode": "fallback",
+        "reason": ""
+      },
+      "erc1155": {
+        "enabled": true,
+        "mode": "fallback",
+        "factoryAddress": "0xf1f7ef041e0602c40b1f92d41afe6a4c9e114027",
+        "implementationAddress": "",
+        "marketplaceMode": "fallback",
+        "reason": ""
+      }
+    },
+    "marketplace": {
+      "erc721": {
+        "enabled": true,
+        "mode": "fallback",
+        "address": "0xdbd5a41a5d1d787c23073fadb234eb2512178248",
+        "reason": ""
+      },
+      "erc1155": {
+        "enabled": true,
+        "mode": "fallback",
+        "address": "0xa62efe6d9688ab2c7d19c654713e8f25d8c6dd9e",
+        "reason": ""
+      }
+    }
+  },
+  "errors": []
+}

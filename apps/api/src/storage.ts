@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import crypto from "node:crypto";
 import path from "node:path";
 
 import { config } from "./config.js";
@@ -56,6 +57,75 @@ export function writeIpfsFallbackJson(filename: string, contents: string) {
   fs.mkdirSync(path.dirname(absolutePath), { recursive: true });
   fs.writeFileSync(absolutePath, contents, "utf8");
   return `${config.publicStorageBasePath}/ipfs/${filename}`;
+}
+
+export function writeIpfsFallbackFile(filename: string, contents: Uint8Array | Buffer) {
+  const absolutePath = path.join(config.storageIpfsFallbackRoot, filename);
+  fs.mkdirSync(path.dirname(absolutePath), { recursive: true });
+  fs.writeFileSync(absolutePath, contents);
+  return `${config.publicStorageBasePath}/ipfs/${filename}`;
+}
+
+function sanitizeSegment(value: string) {
+  return value.toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/^-+|-+$/g, "") || "asset";
+}
+
+function extensionForMimeType(mimeType: string) {
+  switch (mimeType) {
+    case "image/jpeg":
+      return "jpg";
+    case "image/png":
+      return "png";
+    case "image/gif":
+      return "gif";
+    case "image/webp":
+      return "webp";
+    case "image/svg+xml":
+      return "svg";
+    default:
+      return "";
+  }
+}
+
+export function writeDataUrlAsset(relativeDir: string, stem: string, dataUrl: string) {
+  const match = dataUrl.match(/^data:([^;,]+)((?:;[^,]+)*),([\s\S]+)$/);
+  if (!match) {
+    return "";
+  }
+
+  const mimeType = match[1]?.trim().toLowerCase() ?? "";
+  if (!mimeType.startsWith("image/")) {
+    return "";
+  }
+
+  const extension = extensionForMimeType(mimeType);
+  if (!extension) {
+    return "";
+  }
+
+  const parameters = match[2] ?? "";
+  const body = match[3] ?? "";
+  const isBase64 = parameters.toLowerCase().includes(";base64");
+  const contents = isBase64
+    ? Buffer.from(body, "base64")
+    : Buffer.from(decodeURIComponent(body), "utf8");
+
+  const hash = crypto.createHash("sha1").update(dataUrl).digest("hex").slice(0, 12);
+  const filename = `${sanitizeSegment(stem)}-${hash}.${extension}`;
+  const relativePath = path.join(relativeDir, filename);
+  const absolutePath = path.join(config.storagePublicRoot, relativePath);
+
+  fs.mkdirSync(path.dirname(absolutePath), { recursive: true });
+  if (!fs.existsSync(absolutePath)) {
+    fs.writeFileSync(absolutePath, contents);
+  }
+
+  const publicPath = path.posix.join(
+    config.publicStorageBasePath,
+    relativeDir.replaceAll(path.sep, "/"),
+    filename
+  );
+  return publicPath;
 }
 
 export function initializeStorage() {

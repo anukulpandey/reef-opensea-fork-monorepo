@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="1200" viewBox="0 0 1200 1200"><rect width="1200" height="1200" fill="#0d1014" />
+          <rect x="160" y="160" width="880" height="880" rx="160" fill="url(#orbFill)" />
+          <circle cx="600" cy="600" r="270" fill="rgba(255,255,255,0.08)" />
+          <circle cx="600" cy="600" r="208" fill="url(#coreFill)" />
+          <ellipse cx="600" cy="598" rx="312" ry="112" fill="none" stroke="rgba(255,255,255,0.44)" stroke-width="24" />
+          <circle cx="760" cy="430" r="54" fill="rgba(255,255,255,0.14)" />
+          <defs>
+            <linearGradient id="orbFill" x1="160" y1="160" x2="1040" y2="1040">
+              <stop offset="0%" stop-color="#07162a" />
+              <stop offset="50%" stop-color="#0f2657" />
+              <stop offset="100%" stop-color="#0a0f1a" />
+            </linearGradient>
+            <radialGradient id="coreFill" cx="42%" cy="32%" r="80%">
+              <stop offset="0%" stop-color="#d7f8ff" />
+              <stop offset="26%" stop-color="#80dfff" />
+              <stop offset="62%" stop-color="#7f65ff" />
+              <stop offset="100%" stop-color="#0f172a" />
+            </radialGradient>
+          </defs>
+        <text x="96" y="1020" font-family="Arial,Helvetica,sans-serif" font-size="42" font-weight="700" fill="#f8fafc">Reef NFT</text><text x="96" y="1076" font-family="Arial,Helvetica,sans-serif" font-size="28" fill="rgba(248,250,252,0.72)">Collector Edition</text></svg>

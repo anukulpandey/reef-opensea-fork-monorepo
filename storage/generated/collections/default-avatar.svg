@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="800" viewBox="0 0 800 800" fill="none">
+  <rect width="800" height="800" rx="64" fill="#10161f"/>
+  <circle cx="400" cy="400" r="232" fill="#1c3f72"/>
+  <circle cx="400" cy="400" r="170" fill="url(#orb)"/>
+  <ellipse cx="400" cy="430" rx="210" ry="58" stroke="rgba(255,255,255,0.72)" stroke-width="18"/>
+  <circle cx="520" cy="290" r="38" fill="rgba(255,255,255,0.18)"/>
+  <defs>
+    <radialGradient id="orb" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(355 320) rotate(49.87) scale(255.443)">
+      <stop stop-color="#C6F1FF"/>
+      <stop offset="0.48" stop-color="#7BA9FF"/>
+      <stop offset="1" stop-color="#6C5BFF"/>
+    </radialGradient>
+  </defs>
+</svg>
