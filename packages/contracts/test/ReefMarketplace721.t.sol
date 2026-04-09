@@ -12,9 +12,17 @@ contract ReefMarketplace721Test is Test {
 
     address internal seller = address(0xA11CE);
     address internal buyer = address(0xB0B);
+    address internal royaltyReceiver = address(0xC0DE);
 
     function setUp() public {
-        collection = new ReefCollection("Heatblast", "HEAT", seller, "ipfs://contract");
+        collection = new ReefCollection(
+            "Heatblast",
+            "HEAT",
+            seller,
+            "ipfs://contract",
+            royaltyReceiver,
+            500
+        );
         marketplace = new ReefMarketplace721();
 
         vm.prank(seller);
@@ -65,6 +73,23 @@ contract ReefMarketplace721Test is Test {
         (, , , , , bool active) = marketplace.listings(listingId);
         assertFalse(active);
         assertEq(collection.ownerOf(1), buyer);
-        assertEq(seller.balance, sellerBalanceBefore + 1 ether);
+        assertEq(seller.balance, sellerBalanceBefore + 0.95 ether);
+    }
+
+    function testBuyListingPaysRoyaltyRecipient() public {
+        vm.startPrank(seller);
+        collection.approve(address(marketplace), 1);
+        uint256 listingId = marketplace.createListing(address(collection), 1, 1 ether);
+        vm.stopPrank();
+
+        vm.deal(buyer, 2 ether);
+        uint256 royaltyBalanceBefore = royaltyReceiver.balance;
+        uint256 sellerBalanceBefore = seller.balance;
+
+        vm.prank(buyer);
+        marketplace.buyListing{value: 1 ether}(listingId);
+
+        assertEq(royaltyReceiver.balance, royaltyBalanceBefore + 0.05 ether);
+        assertEq(seller.balance, sellerBalanceBefore + 0.95 ether);
     }
 }

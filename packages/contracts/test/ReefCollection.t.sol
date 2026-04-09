@@ -42,6 +42,24 @@ contract ReefCollectionTest is Test {
         assertEq(collection.tokenURI(tokenId), "ipfs://heatblast-1");
     }
 
+    function testOwnerCanMintViaCreatorAlias() public {
+        vm.prank(creator);
+        address collectionAddress =
+            factory.createCollection("Upgrade", "UPG", "ipfs://contract", 500);
+        ReefCollection collection = ReefCollection(collectionAddress);
+
+        vm.prank(creator);
+        uint256 tokenId = collection.mintCreator(collector, "ipfs://upgrade-1");
+
+        assertEq(tokenId, 1);
+        assertEq(collection.ownerOf(tokenId), collector);
+        assertEq(collection.tokenURI(tokenId), "ipfs://upgrade-1");
+
+        (address royaltyReceiver, uint256 royaltyAmount) = collection.royaltyInfo(tokenId, 1 ether);
+        assertEq(royaltyReceiver, creator);
+        assertEq(royaltyAmount, 0.05 ether);
+    }
+
     function testNonOwnerCannotMint() public {
         vm.prank(creator);
         address collectionAddress =
@@ -49,7 +67,7 @@ contract ReefCollectionTest is Test {
         ReefCollection collection = ReefCollection(collectionAddress);
 
         vm.prank(collector);
-        vm.expectRevert(bytes("NOT_OWNER"));
+        vm.expectRevert(bytes("Ownable: caller is not the owner"));
         collection.mintTo(collector, "ipfs://four-arms-1");
     }
 }

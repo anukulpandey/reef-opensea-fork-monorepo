@@ -1,13 +1,11 @@
 {
   "chainId": 13939,
-  "rpcUrl": "http://127.0.0.1:8545",
+  "rpcUrl": "http://host.docker.internal:8545",
   "deployer": "0x212e2A4545ee7AC59837212F9860DbC245090B6f",
-  "probeAddress": "0xd8f420258a75581e8f110a1d46c2d3f78ea2087f",
   "verified": true,
-  "txHash": "0xaa4d1ba7c55186cadb76659528e1196f802d3389732cb83358c70553657d2a44",
-  "blockNumber": 23,
-  "gasEstimated": "80725566626",
-  "gasUsed": "80605558469",
-  "codeLength": 228,
-  "note": "Probe contract returned bytecode successfully."
+  "address": "0xd8f420258a75581e8f110a1d46c2d3f78ea2087f",
+  "txHash": "0x5ef69425d531bd999c7eae350250522a0dcb58618b23d97c3f9c19344902626c",
+  "blockNumber": 17,
+  "deployedAt": "2026-04-08T16:47:40.970Z",
+  "reason": "Reef returned bytecode for the deployment probe."
 }

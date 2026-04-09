@@ -45,7 +45,9 @@ contract DeployReefStack is Script {
             collectionName,
             collectionSymbol,
             deployer,
-            contractURI
+            contractURI,
+            deployer,
+            0
         );
         vm.stopBroadcast();
 

@@ -1,9 +1,8 @@
 import fs from "node:fs";
 import path from "node:path";
-import { execFileSync } from "node:child_process";
 
 import dotenv from "dotenv";
-import { AbiCoder, JsonRpcProvider, Wallet } from "ethers";
+import { AbiCoder, JsonRpcProvider, TransactionReceipt, Wallet } from "ethers";
 import { resolveNodeAppConfig } from "@reef/config";
 
 const rootDir = path.resolve(path.dirname(new URL(import.meta.url).pathname), "../../..");
@@ -18,8 +17,15 @@ const rpcUrl =
 const chainId = Number(process.env.REEF_CHAIN_ID ?? String(appConfig.network.chainId));
 const chainName = process.env.REEF_CHAIN_NAME ?? appConfig.network.chainName;
 const privateKey = process.env.PRIVATE_KEY;
-const gasPrice = BigInt(process.env.REEF_GAS_PRICE_WEI ?? "100000000");
-const defaultGasLimit = BigInt(process.env.REEF_GAS_LIMIT ?? "80000000000");
+const deployProcessTimeoutMs = Number(process.env.REEF_DEPLOY_MAX_WAIT_SECS ?? "600") * 1_000;
+const gasLimitHeadroomNumerator = 11n;
+const gasLimitHeadroomDenominator = 10n;
+const broadcastVisibilityTimeoutMs = 15_000;
+const broadcastVisibilityPollMs = 1_500;
+const minimumReefMaxFeePerGasWei = BigInt(
+  process.env.REEF_MIN_MAX_FEE_PER_GAS_WEI ?? "1000000000"
+);
+const forceLegacyReefFees = process.env.REEF_FORCE_LEGACY_FEES?.trim() !== "0";
 
 if (!privateKey) {
   throw new Error("PRIVATE_KEY is required");
@@ -28,8 +34,6 @@ if (!privateKey) {
 const provider = new JsonRpcProvider(rpcUrl, chainId);
 const wallet = new Wallet(privateKey, provider);
 const outDir = path.join(rootDir, "packages/contracts/out");
-const reviveBinaryPath = path.join(rootDir, "tools/revive-deployer/target/debug/revive-deployer");
-const reviveManifestPath = path.join(rootDir, "tools/revive-deployer/Cargo.toml");
 const runtimeArtifactPath = path.resolve(
   rootDir,
   process.env.REEF_RUNTIME_FILE ?? appConfig.contracts.artifactPaths.runtime
@@ -54,15 +58,92 @@ function readArtifactIfExists(filePath) {
   return readJson(filePath);
 }
 
-function ensureReviveDeployerBuilt() {
-  if (fs.existsSync(reviveBinaryPath)) {
-    return;
+function maxBigInt(left, right) {
+  if (right === undefined) {
+    return left;
   }
-  execFileSync("cargo", ["build", "--manifest-path", reviveManifestPath], {
-    cwd: rootDir,
-    stdio: "inherit",
-    env: process.env
+  return left > right ? left : right;
+}
+
+function addGasHeadroom(gasLimit) {
+  return (gasLimit * gasLimitHeadroomNumerator) / gasLimitHeadroomDenominator + 1n;
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function receiptSummary(receipt) {
+  return JSON.stringify({
+    transactionHash: receipt.hash,
+    blockNumber: receipt.blockNumber,
+    status: receipt.status,
+    contractAddress: receipt.contractAddress,
+    gasUsed: receipt.gasUsed.toString()
   });
+}
+
+function resolveConfiguredGasLimit(...envKeys) {
+  for (const envKey of envKeys) {
+    const rawValue = process.env[envKey]?.trim();
+    if (rawValue) {
+      return BigInt(rawValue);
+    }
+  }
+  return undefined;
+}
+
+async function resolveFeeOverrides(attempt) {
+  const configuredGasPrice = process.env.REEF_GAS_PRICE_WEI?.trim();
+  const replacementMultiplier = 2n ** BigInt(attempt);
+  const legacyReplacementMultiplier = replacementMultiplier + 1n;
+
+  if (configuredGasPrice) {
+    const baseGasPrice = BigInt(configuredGasPrice);
+    return {
+      type: 0,
+      gasPrice: maxBigInt(
+        baseGasPrice * legacyReplacementMultiplier,
+        minimumReefMaxFeePerGasWei
+      )
+    };
+  }
+
+  const feeData = await provider.getFeeData();
+  const resolvedGasPrice = feeData.gasPrice ?? 100_000_000n;
+  if (forceLegacyReefFees) {
+    return {
+      type: 0,
+      gasPrice: maxBigInt(
+        resolvedGasPrice * legacyReplacementMultiplier,
+        minimumReefMaxFeePerGasWei
+      )
+    };
+  }
+
+  if (feeData.maxFeePerGas != null) {
+    const maxPriorityFeePerGas =
+      feeData.maxPriorityFeePerGas != null && feeData.maxPriorityFeePerGas > 0n
+        ? feeData.maxPriorityFeePerGas
+        : minimumReefMaxFeePerGasWei;
+    return {
+      maxFeePerGas: maxBigInt(
+        feeData.maxFeePerGas * legacyReplacementMultiplier,
+        minimumReefMaxFeePerGasWei
+      ),
+      maxPriorityFeePerGas: maxBigInt(
+        maxPriorityFeePerGas * legacyReplacementMultiplier,
+        minimumReefMaxFeePerGasWei
+      )
+    };
+  }
+
+  return {
+    gasPrice: maxBigInt(
+      resolvedGasPrice * legacyReplacementMultiplier,
+      minimumReefMaxFeePerGasWei
+    )
+  };
 }
 
 function findArtifact(contractName) {
@@ -98,7 +179,106 @@ async function ensureCode(address) {
   }
 }
 
-async function deployArtifact(contractName, args = [], gasLimit = defaultGasLimit) {
+async function ensureTransactionVisible(txHash) {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < broadcastVisibilityTimeoutMs) {
+    const transaction = await provider.getTransaction(txHash).catch(() => null);
+    if (transaction) {
+      return;
+    }
+    await sleep(broadcastVisibilityPollMs);
+  }
+
+  throw new Error(
+    `Reef returned tx hash ${txHash}, but the RPC never surfaced the transaction back for receipt tracking.`
+  );
+}
+
+async function submitReefTransaction({ inputHex, txTo, expectedCodeAddress, gasLimit }) {
+  const attemptCount = 4;
+  let lastError = null;
+  const txRequest = txTo ? { to: txTo, data: inputHex } : { data: inputHex };
+  const relayedNonce = await provider.getTransactionCount(wallet.address, "pending");
+
+  for (let attempt = 0; attempt < attemptCount; attempt += 1) {
+    try {
+      console.error(
+        `[reef-runtime] estimating gas attempt ${attempt + 1}/${attemptCount} for ${
+          txTo ? txTo : "contract creation"
+        }`
+      );
+      const estimatedGas = await provider.estimateGas({
+        from: wallet.address,
+        ...txRequest
+      });
+      const resolvedGasLimit = maxBigInt(addGasHeadroom(estimatedGas), gasLimit);
+      const feeOverrides = await resolveFeeOverrides(attempt);
+      console.error(
+        `[reef-runtime] sending tx with gasLimit=${resolvedGasLimit.toString()} for ${
+          txTo ? txTo : "contract creation"
+        }`
+      );
+      const response = await wallet.sendTransaction({
+        ...txRequest,
+        nonce: relayedNonce,
+        gasLimit: resolvedGasLimit,
+        ...feeOverrides
+      });
+      await ensureTransactionVisible(response.hash);
+      console.error(`[reef-runtime] waiting for receipt ${response.hash}`);
+      const receipt = await provider.waitForTransaction(
+        response.hash,
+        1,
+        deployProcessTimeoutMs
+      );
+
+      if (!receipt) {
+        throw new Error(
+          `Timed out while waiting for Reef to confirm ${response.hash} within ${Math.round(
+            deployProcessTimeoutMs / 1000
+          )}s.`
+        );
+      }
+
+      if (receipt.status !== 1) {
+        throw new Error(`transaction failed receipt: ${receiptSummary(receipt)}`);
+      }
+
+      return {
+        txHash: receipt.hash,
+        blockNumber: Number(receipt.blockNumber ?? 0),
+        contractAddress: (
+          receipt.contractAddress ??
+          expectedCodeAddress ??
+          txTo ??
+          ""
+        ).toLowerCase()
+      };
+    } catch (error) {
+      lastError = error;
+      const detail = error instanceof Error ? error.message : String(error);
+      if (
+        attempt < attemptCount - 1 &&
+        (
+          /temporarily banned/i.test(detail) ||
+          /priority is too low/i.test(detail) ||
+          /never surfaced the transaction back/i.test(detail)
+        )
+      ) {
+        console.warn(
+          `Retrying Reef deployment attempt ${attempt + 2}/${attemptCount} after transient rejection: ${detail}`
+        );
+        continue;
+      }
+      throw error;
+    }
+  }
+
+  throw lastError;
+}
+
+async function deployArtifact(contractName, args = [], gasLimit) {
+  console.error(`[reef-runtime] deploying ${contractName}`);
   const artifact = findArtifact(contractName);
   const encodedArgs = args.length
     ? AbiCoder.defaultAbiCoder().encode(
@@ -107,32 +287,21 @@ async function deployArtifact(contractName, args = [], gasLimit = defaultGasLimi
       )
     : "0x";
   const initCode = artifact.bytecode.object + encodedArgs.slice(2);
-  ensureReviveDeployerBuilt();
-  const stdout = execFileSync(reviveBinaryPath, {
-    cwd: rootDir,
-    encoding: "utf8",
-    env: {
-      ...process.env,
-      PRIVATE_KEY: privateKey,
-      REEF_RPC_URL: rpcUrl,
-      INIT_CODE_HEX: initCode,
-      REEF_GAS_LIMIT: gasLimit.toString(),
-      REEF_GAS_PRICE_WEI: gasPrice.toString()
-    }
+
+  const deployment = await submitReefTransaction({
+    inputHex: initCode,
+    gasLimit
   });
-  const deployment = JSON.parse(stdout);
-  const address = deployment.contract_address;
-  const verified = Boolean(deployment.ok) && (await ensureCode(address));
+  const address = deployment.contractAddress;
+  const verified = await ensureCode(address);
   if (!verified) {
     throw new Error(`${contractName} deployed but no bytecode was found at ${address}.`);
   }
   return {
     address,
     verified,
-    txHash: deployment.tx_hash,
-    blockNumber: Number(deployment.block_number ?? 0),
-    gasEstimated: deployment.gas_estimated,
-    gasUsed: deployment.gas_used
+    txHash: deployment.txHash,
+    blockNumber: deployment.blockNumber
   };
 }
 
@@ -187,25 +356,46 @@ function deriveMode(creator721, creator1155, market721, market1155) {
 
 async function main() {
   fs.mkdirSync(path.dirname(runtimeArtifactPath), { recursive: true });
+  console.error(`[reef-runtime] using RPC ${rpcUrl}`);
+  console.error(`[reef-runtime] deployer ${wallet.address}`);
 
+  const existingRuntimeArtifact = readArtifactIfExists(runtimeArtifactPath);
   const official = await loadOfficialContracts();
   const fallback = {
-    creatorFactory721: { address: "", verified: false },
-    editionFactory1155: { address: "", verified: false },
-    marketplace721: { address: "", verified: false },
-    marketplace1155: { address: "", verified: false }
+    creatorFactory721: {
+      address: existingRuntimeArtifact?.contracts?.fallback?.creatorFactory721?.address ?? "",
+      verified: Boolean(existingRuntimeArtifact?.contracts?.fallback?.creatorFactory721?.verified)
+    },
+    editionFactory1155: {
+      address: existingRuntimeArtifact?.contracts?.fallback?.editionFactory1155?.address ?? "",
+      verified: Boolean(existingRuntimeArtifact?.contracts?.fallback?.editionFactory1155?.verified)
+    },
+    marketplace721: {
+      address: existingRuntimeArtifact?.contracts?.fallback?.marketplace721?.address ?? "",
+      verified: Boolean(existingRuntimeArtifact?.contracts?.fallback?.marketplace721?.verified)
+    },
+    marketplace1155: {
+      address: existingRuntimeArtifact?.contracts?.fallback?.marketplace1155?.address ?? "",
+      verified: Boolean(existingRuntimeArtifact?.contracts?.fallback?.marketplace1155?.verified)
+    },
+    dropManager: {
+      address: existingRuntimeArtifact?.contracts?.fallback?.dropManager?.address ?? "",
+      verified: Boolean(existingRuntimeArtifact?.contracts?.fallback?.dropManager?.verified)
+    }
   };
   const deployErrors = [];
-  let probe = {
-    verified: false,
-    reason: "Probe not executed."
-  };
+  let probe = existingRuntimeArtifact?.probe?.verified
+    ? existingRuntimeArtifact.probe
+    : {
+        verified: false,
+        reason: "Probe not executed."
+      };
 
   try {
     const probeDeployment = await deployArtifact(
       "ReefDeploymentProbe",
       [],
-      BigInt(process.env.REEF_PROBE_GAS_LIMIT ?? "3500000")
+      resolveConfiguredGasLimit("REEF_PROBE_GAS_LIMIT", "REEF_GAS_LIMIT") ?? 3_500_000n
     );
     probe = {
       verified: true,
@@ -215,13 +405,16 @@ async function main() {
       reason: "Reef returned bytecode for the deployment probe."
     };
   } catch (error) {
-    probe = {
-      verified: false,
-      reason: error instanceof Error ? error.message : String(error)
-    };
+    const reason = error instanceof Error ? error.message : String(error);
+    if (!probe?.verified) {
+      probe = {
+        verified: false,
+        reason
+      };
+    }
     deployErrors.push({
       contract: "ReefDeploymentProbe",
-      reason: probe.reason
+      reason
     });
   }
 
@@ -229,10 +422,19 @@ async function main() {
     ["creatorFactory721", "ReefCollectionFactory721"],
     ["editionFactory1155", "ReefEditionFactory"],
     ["marketplace721", "ReefMarketplace721"],
-    ["marketplace1155", "ReefMarketplace1155"]
+    ["marketplace1155", "ReefMarketplace1155"],
+    ["dropManager", "ReefDropManager"]
   ]) {
     try {
-      const deployment = await deployArtifact(contractName);
+      const deployment = await deployArtifact(
+        contractName,
+        [],
+        key.startsWith("marketplace")
+          ? resolveConfiguredGasLimit("REEF_MARKETPLACE_GAS_LIMIT", "REEF_GAS_LIMIT")
+          : key === "dropManager"
+            ? resolveConfiguredGasLimit("REEF_DROP_MANAGER_GAS_LIMIT", "REEF_GAS_LIMIT")
+            : resolveConfiguredGasLimit("REEF_COLLECTION_GAS_LIMIT", "REEF_GAS_LIMIT")
+      );
       fallback[key] = {
         address: deployment.address,
         verified: deployment.verified,

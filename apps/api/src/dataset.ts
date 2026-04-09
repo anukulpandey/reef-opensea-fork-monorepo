@@ -10,7 +10,6 @@ import {
   getCreatorCollectionBySlug,
   getNft,
   getUserByAddress,
-  listAdminDrops,
   listCreatorCollections,
   listHolders,
   listListings,
@@ -27,6 +26,7 @@ import {
   type TransferRecord
 } from "./db.js";
 import { readJsonFromIpfs, toGatewayUrl } from "./ipfs.js";
+import { listAdminDrops } from "./managed-drops.js";
 import { runtimeState } from "./runtime.js";
 import { writeDataUrlAsset, writeGeneratedSvg } from "./storage.js";
 
@@ -158,6 +158,7 @@ type ActivityRecord = {
   collectionName?: string;
   itemId: string;
   itemName: string;
+  imageUrl?: string;
   from: string;
   to: string;
   fromAddress?: string;
@@ -378,26 +379,73 @@ function initials(value: string) {
   return value.trim().slice(0, 2).toUpperCase() || "?";
 }
 
+function pixelValue(seed: string, row: number, column: number) {
+  let hash = 0;
+  for (const char of `${seed}:${row}:${column}`) {
+    hash = (hash * 31 + char.charCodeAt(0)) >>> 0;
+  }
+  return hash % 100;
+}
+
 function profileAvatarSvg(seed: string, label: string) {
   const [primary, secondary, shadow] = colorSetForSeed(seed);
+  const accent = "#f8fafc";
+  const glow = "rgba(255,255,255,0.08)";
+  const pixels: string[] = [];
+  const cell = 64;
+  const gap = 12;
+  const grid = 5;
+  const gridSize = grid * cell + (grid - 1) * gap;
+  const offset = (512 - gridSize) / 2;
+
+  for (let row = 0; row < grid; row += 1) {
+    for (let column = 0; column < Math.ceil(grid / 2); column += 1) {
+      const value = pixelValue(seed, row, column);
+      if (value < 34) {
+        continue;
+      }
+      const mirroredColumn = grid - 1 - column;
+      const fill = value > 76 ? accent : value > 55 ? secondary : primary;
+      const opacity = value > 76 ? "0.98" : value > 55 ? "0.94" : "0.88";
+      const x = offset + column * (cell + gap);
+      const y = offset + row * (cell + gap);
+      const mirroredX = offset + mirroredColumn * (cell + gap);
+      pixels.push(
+        `<rect x="${x}" y="${y}" width="${cell}" height="${cell}" fill="${fill}" fill-opacity="${opacity}" />`
+      );
+      if (mirroredColumn !== column) {
+        pixels.push(
+          `<rect x="${mirroredX}" y="${y}" width="${cell}" height="${cell}" fill="${fill}" fill-opacity="${opacity}" />`
+        );
+      }
+    }
+  }
+
   const svg = `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" fill="none">
   <defs>
-    <linearGradient id="bg" x1="60" y1="42" x2="448" y2="470" gradientUnits="userSpaceOnUse">
+    <linearGradient id="bg" x1="30" y1="24" x2="472" y2="480" gradientUnits="userSpaceOnUse">
       <stop stop-color="${primary}"/>
       <stop offset="1" stop-color="${shadow}"/>
     </linearGradient>
-    <radialGradient id="orb" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(152 116) rotate(46) scale(280 220)">
-      <stop stop-color="${secondary}" stop-opacity="0.94"/>
+    <radialGradient id="glowA" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(130 108) rotate(42) scale(316 270)">
+      <stop stop-color="${secondary}" stop-opacity="0.42"/>
       <stop offset="1" stop-color="${secondary}" stop-opacity="0"/>
     </radialGradient>
+    <radialGradient id="glowB" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(386 398) rotate(130) scale(232 212)">
+      <stop stop-color="${glow}"/>
+      <stop offset="1" stop-color="${glow}" stop-opacity="0"/>
+    </radialGradient>
   </defs>
-  <rect width="512" height="512" rx="136" fill="url(#bg)"/>
-  <circle cx="156" cy="116" r="108" fill="url(#orb)"/>
-  <circle cx="404" cy="386" r="92" fill="${secondary}" fill-opacity="0.18"/>
-  <circle cx="118" cy="380" r="54" fill="#ffffff" fill-opacity="0.08"/>
-  <path d="M364 84c34 26 56 66 56 111 0 80-61 141-146 141-57 0-103-22-134-58 22 63 81 110 156 110 98 0 168-68 168-165 0-50-19-92-52-122h-48Z" fill="#ffffff" fill-opacity="0.08"/>
-  <text x="256" y="294" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="148" font-weight="700" fill="#fff">${escapeXml(initials(label))}</text>
+  <rect width="512" height="512" rx="136" fill="#0d1014"/>
+  <rect x="20" y="20" width="472" height="472" rx="120" fill="url(#bg)"/>
+  <rect x="20" y="20" width="472" height="472" rx="120" stroke="rgba(255,255,255,0.08)"/>
+  <circle cx="136" cy="112" r="112" fill="url(#glowA)"/>
+  <circle cx="390" cy="398" r="106" fill="url(#glowB)"/>
+  <rect x="74" y="74" width="364" height="364" rx="84" fill="rgba(7,10,14,0.38)"/>
+  <rect x="74" y="74" width="364" height="364" rx="84" stroke="rgba(255,255,255,0.06)"/>
+  ${pixels.join("")}
+  <rect x="74" y="74" width="364" height="364" rx="84" stroke="rgba(255,255,255,0.04)"/>
 </svg>`;
   return `data:image/svg+xml;base64,${Buffer.from(svg, "utf8").toString("base64")}`;
 }
@@ -627,7 +675,20 @@ function isImplicitDefaultStarterArtwork(url: string) {
   if (!svg) {
     return false;
   }
-  return svg.includes("Reef NFT") && svg.includes("Collector Edition") && svg.includes("orbFill");
+  return (
+    svg.includes('width="1200"') &&
+    svg.includes('height="1200"') &&
+    svg.includes('viewBox="0 0 1200 1200"') &&
+    svg.includes('fill="#0d1014"') &&
+    svg.includes('x="96" y="1020"') &&
+    svg.includes('x="96" y="1076"') &&
+    (
+      svg.includes('id="orbFill"') ||
+      svg.includes('id="maskFill"') ||
+      svg.includes('id="monolithFill"') ||
+      svg.includes('id="glyphFill"')
+    )
+  );
 }
 
 function materializeCollectionMediaUrl(url: string, slug: string, kind: "avatar" | "banner") {
@@ -639,6 +700,30 @@ function materializeCollectionMediaUrl(url: string, slug: string, kind: "avatar"
 
 function resolveCollectionMediaUrl(url: string, slug: string, kind: "avatar" | "banner") {
   return normalizePublicMediaUrl(url) || materializeCollectionMediaUrl(url, slug, kind);
+}
+
+function pickCollectionHeroBackground(input: {
+  bannerUrl?: string;
+  avatarUrl?: string;
+  itemImageUrls?: string[];
+}) {
+  const candidates = [
+    input.bannerUrl ?? "",
+    input.avatarUrl ?? "",
+    ...(input.itemImageUrls ?? [])
+  ];
+
+  for (const candidate of candidates) {
+    const normalized = normalizePublicMediaUrl(candidate);
+    if (normalized) {
+      return normalized;
+    }
+    if (candidate.trim()) {
+      return candidate;
+    }
+  }
+
+  return "";
 }
 
 function materializeNftMediaUrl(url: string, slug: string, tokenId: string) {
@@ -715,6 +800,38 @@ async function resolvePublicNftImage(
     nft.name || `${options.collectionName} #${nft.tokenId}`,
     options.collectionName,
     `${options.collectionSlug}:${nft.tokenId}`
+  );
+}
+
+function resolveActivityImageUrl(input: {
+  tokenId: string;
+  itemMap: Map<string, ItemRecord>;
+  collectionImageUrl?: string;
+  fallbackTitle: string;
+  fallbackSubtitle: string;
+  fallbackSeed: string;
+}) {
+  const matchedItem = input.itemMap.get(String(input.tokenId));
+  const itemImage =
+    normalizePublicMediaUrl(matchedItem?.imageUrl ?? "") ||
+    matchedItem?.imageUrl ||
+    "";
+  if (itemImage) {
+    return itemImage;
+  }
+
+  const collectionImage =
+    normalizePublicMediaUrl(input.collectionImageUrl ?? "") ||
+    input.collectionImageUrl ||
+    "";
+  if (collectionImage) {
+    return collectionImage;
+  }
+
+  return placeholderSvg(
+    input.fallbackTitle,
+    input.fallbackSubtitle,
+    `#${input.fallbackSeed.slice(0, 6).padEnd(6, "2")}`
   );
 }
 
@@ -872,6 +989,23 @@ function buildCreatorCollectionSummary(
   };
 }
 
+function floorPriceRawFromListings(listings: ListingRecord[]) {
+  return listings.reduce<bigint | null>((lowest, listing) => {
+    const price = BigInt(listing.priceRaw || "0");
+    if (price <= 0n) {
+      return lowest;
+    }
+    if (lowest === null || price < lowest) {
+      return price;
+    }
+    return lowest;
+  }, null);
+}
+
+function totalVolumeRawFromSales(sales: SaleRecord[]) {
+  return sales.reduce((sum, sale) => sum + BigInt(sale.priceRaw || "0"), 0n);
+}
+
 function toDraftCollectionSummary(record: CreatorCollectionRecord): CollectionSummary {
   const accent = "#2081e2";
   const avatarUrl =
@@ -891,10 +1025,84 @@ function toDraftCollectionSummary(record: CreatorCollectionRecord): CollectionSu
 }
 
 async function toPublicCreatorCollectionSummary(record: CreatorCollectionRecord): Promise<CollectionSummary> {
-  return buildCreatorCollectionSummary(
-    record,
-    await resolvePublicCollectionMedia(record)
+  const media = await resolvePublicCollectionMedia(record);
+  const base = buildCreatorCollectionSummary(record, media);
+
+  if (!record.contractAddress) {
+    return base;
+  }
+
+  const creatorCollectionAddress = record.contractAddress.toLowerCase();
+  const [nfts, activeListings, sales, holderRows] = await Promise.all([
+    listNfts(creatorCollectionAddress),
+    listListings({ collectionAddress: creatorCollectionAddress, status: "active" }),
+    listSales(200, creatorCollectionAddress),
+    listHolders(creatorCollectionAddress)
+  ]);
+
+  const mintedCount = nfts.length;
+  const ownerCount = holderRows.length;
+  const listedPercent = mintedCount > 0 ? (activeListings.length / mintedCount) * 100 : 0;
+  const floorPriceRaw = floorPriceRawFromListings(activeListings) ?? 0n;
+  const totalVolumeRaw = totalVolumeRawFromSales(sales);
+  const featuredImageUrls = uniqueMediaStrip(
+    await Promise.all(
+      nfts.slice(0, 4).map((nft) =>
+        resolvePublicNftImage(nft, {
+          collectionSlug: record.slug,
+          collectionName: record.name,
+          collectionAvatarUrl: base.avatarUrl
+        })
+      )
+    )
   );
+
+  return {
+    ...base,
+    items: mintedCount,
+    owners: ownerCount,
+    floorPriceRaw: floorPriceRaw.toString(),
+    totalVolumeRaw: totalVolumeRaw.toString(),
+    listedPercent,
+    floorDisplay: floorPriceRaw > 0n ? formatNative(floorPriceRaw.toString()) : "No listings",
+    volumeDisplay: formatCompactNative(totalVolumeRaw.toString()),
+    stats: [
+      {
+        label: "Status",
+        value: base.tableMetrics.change,
+        change: record.deploymentMode === "official" ? "Official" : "Fallback"
+      },
+      {
+        label: "Items",
+        value: String(mintedCount),
+        change: activeListings.length ? `${activeListings.length} listed` : "None listed"
+      },
+      {
+        label: "Owners",
+        value: String(ownerCount),
+        change: sales.length ? `${sales.length} sales` : "No sales"
+      }
+    ],
+    featuredImageUrls: featuredImageUrls.length > 0 ? featuredImageUrls : base.featuredImageUrls,
+    hero: {
+      ...base.hero,
+      metrics: [
+        { label: "Floor Price", value: floorPriceRaw > 0n ? formatNative(floorPriceRaw.toString()) : "No listings" },
+        { label: "Top Offer", value: "No offers" },
+        { label: "Total Volume", value: formatCompactNative(totalVolumeRaw.toString()) }
+      ],
+      backgroundUrl: base.bannerUrl || featuredImageUrls[0] || base.hero.backgroundUrl
+    },
+    tableMetrics: {
+      floor: floorPriceRaw > 0n ? formatNative(floorPriceRaw.toString()) : "No listings",
+      change: base.tableMetrics.change,
+      topOffer: "-",
+      volume: formatCompactNative(totalVolumeRaw.toString()),
+      sales: String(sales.length),
+      owners: String(ownerCount),
+      listed: formatPercent(listedPercent)
+    }
+  };
 }
 
 async function buildProfile(address: string, itemCount = 0, volume = "0") {
@@ -1013,8 +1221,11 @@ async function buildMarketState(): Promise<MarketState> {
   }));
 
   const itemMap = new Map(items.map((item) => [item.tokenId, item]));
+  const collectionActivityImage =
+    items.find((item) => item.imageUrl)?.imageUrl ||
+    resolveImageUrl(nfts[0] ?? null);
   const listingActivities = activeListings.map((listing) => {
-    const item = itemMap.get(listing.tokenId);
+    const item = itemMap.get(String(listing.tokenId));
     return {
       id: `listing-${listing.listingId}`,
       type: "listing",
@@ -1023,6 +1234,14 @@ async function buildMarketState(): Promise<MarketState> {
       collectionName: nodeConfig.contracts.collection.name,
       itemId: listing.tokenId,
       itemName: item?.name ?? `${nodeConfig.contracts.collection.name} #${listing.tokenId}`,
+      imageUrl: resolveActivityImageUrl({
+        tokenId: listing.tokenId,
+        itemMap,
+        collectionImageUrl: collectionActivityImage,
+        fallbackTitle: item?.name ?? `${nodeConfig.contracts.collection.name} #${listing.tokenId}`,
+        fallbackSubtitle: nodeConfig.contracts.collection.name,
+        fallbackSeed: `${collectionSlug}:${listing.tokenId}`
+      }),
       from: shortenAddress(listing.seller),
       to: "marketplace",
       fromAddress: listing.seller,
@@ -1035,7 +1254,7 @@ async function buildMarketState(): Promise<MarketState> {
   });
 
   const saleActivities = sales.map((sale) => {
-    const item = itemMap.get(sale.tokenId);
+    const item = itemMap.get(String(sale.tokenId));
     return {
       id: `sale-${sale.txHash}`,
       type: "sale",
@@ -1044,6 +1263,14 @@ async function buildMarketState(): Promise<MarketState> {
       collectionName: nodeConfig.contracts.collection.name,
       itemId: sale.tokenId,
       itemName: item?.name ?? `${nodeConfig.contracts.collection.name} #${sale.tokenId}`,
+      imageUrl: resolveActivityImageUrl({
+        tokenId: sale.tokenId,
+        itemMap,
+        collectionImageUrl: collectionActivityImage,
+        fallbackTitle: item?.name ?? `${nodeConfig.contracts.collection.name} #${sale.tokenId}`,
+        fallbackSubtitle: nodeConfig.contracts.collection.name,
+        fallbackSeed: `${collectionSlug}:${sale.tokenId}`
+      }),
       from: shortenAddress(sale.seller),
       to: shortenAddress(sale.buyer),
       fromAddress: sale.seller,
@@ -1056,7 +1283,7 @@ async function buildMarketState(): Promise<MarketState> {
   });
 
   const transferActivities = transfers.map((transfer) => {
-    const item = itemMap.get(transfer.tokenId);
+    const item = itemMap.get(String(transfer.tokenId));
     return {
       id: `transfer-${transfer.txHash}-${transfer.logIndex}`,
       type: transfer.eventType,
@@ -1065,6 +1292,14 @@ async function buildMarketState(): Promise<MarketState> {
       collectionName: nodeConfig.contracts.collection.name,
       itemId: transfer.tokenId,
       itemName: item?.name ?? `${nodeConfig.contracts.collection.name} #${transfer.tokenId}`,
+      imageUrl: resolveActivityImageUrl({
+        tokenId: transfer.tokenId,
+        itemMap,
+        collectionImageUrl: collectionActivityImage,
+        fallbackTitle: item?.name ?? `${nodeConfig.contracts.collection.name} #${transfer.tokenId}`,
+        fallbackSubtitle: nodeConfig.contracts.collection.name,
+        fallbackSeed: `${collectionSlug}:${transfer.tokenId}`
+      }),
       from: shortenAddress(transfer.fromAddress),
       to: shortenAddress(transfer.toAddress),
       fromAddress: transfer.fromAddress,
@@ -1356,8 +1591,9 @@ async function buildCreatorCollectionDetail(
   }));
 
   const itemMap = new Map(items.map((item) => [item.tokenId, item]));
+  const collectionActivityImage = baseCollection.avatarUrl || defaultItemImage;
   const listingActivities = activeListings.map((listing) => {
-    const item = itemMap.get(listing.tokenId);
+    const item = itemMap.get(String(listing.tokenId));
     return {
       id: `listing-${listing.listingId}`,
       type: "listing",
@@ -1366,6 +1602,14 @@ async function buildCreatorCollectionDetail(
       collectionName: draft.name,
       itemId: listing.tokenId,
       itemName: item?.name ?? `${draft.name} #${listing.tokenId}`,
+      imageUrl: resolveActivityImageUrl({
+        tokenId: listing.tokenId,
+        itemMap,
+        collectionImageUrl: collectionActivityImage,
+        fallbackTitle: item?.name ?? `${draft.name} #${listing.tokenId}`,
+        fallbackSubtitle: draft.name,
+        fallbackSeed: `${draft.slug}:${listing.tokenId}`
+      }),
       from: shortenAddress(listing.seller),
       to: "marketplace",
       fromAddress: listing.seller,
@@ -1378,7 +1622,7 @@ async function buildCreatorCollectionDetail(
   });
 
   const saleActivities = sales.map((sale) => {
-    const item = itemMap.get(sale.tokenId);
+    const item = itemMap.get(String(sale.tokenId));
     return {
       id: `sale-${sale.txHash}`,
       type: "sale",
@@ -1387,6 +1631,14 @@ async function buildCreatorCollectionDetail(
       collectionName: draft.name,
       itemId: sale.tokenId,
       itemName: item?.name ?? `${draft.name} #${sale.tokenId}`,
+      imageUrl: resolveActivityImageUrl({
+        tokenId: sale.tokenId,
+        itemMap,
+        collectionImageUrl: collectionActivityImage,
+        fallbackTitle: item?.name ?? `${draft.name} #${sale.tokenId}`,
+        fallbackSubtitle: draft.name,
+        fallbackSeed: `${draft.slug}:${sale.tokenId}`
+      }),
       from: shortenAddress(sale.seller),
       to: shortenAddress(sale.buyer),
       fromAddress: sale.seller,
@@ -1399,7 +1651,7 @@ async function buildCreatorCollectionDetail(
   });
 
   const transferActivities = transfers.map((transfer) => {
-    const item = itemMap.get(transfer.tokenId);
+    const item = itemMap.get(String(transfer.tokenId));
     return {
       id: `transfer-${transfer.txHash}-${transfer.logIndex}`,
       type: transfer.eventType,
@@ -1408,6 +1660,14 @@ async function buildCreatorCollectionDetail(
       collectionName: draft.name,
       itemId: transfer.tokenId,
       itemName: item?.name ?? `${draft.name} #${transfer.tokenId}`,
+      imageUrl: resolveActivityImageUrl({
+        tokenId: transfer.tokenId,
+        itemMap,
+        collectionImageUrl: collectionActivityImage,
+        fallbackTitle: item?.name ?? `${draft.name} #${transfer.tokenId}`,
+        fallbackSubtitle: draft.name,
+        fallbackSeed: `${draft.slug}:${transfer.tokenId}`
+      }),
       from: shortenAddress(transfer.fromAddress),
       to: shortenAddress(transfer.toAddress),
       fromAddress: transfer.fromAddress,
@@ -1430,13 +1690,15 @@ async function buildCreatorCollectionDetail(
       .sort((left, right) => (BigInt(left.priceRaw) < BigInt(right.priceRaw) ? -1 : 1))[0] ?? null;
   const listedPercent = items.length ? (activeListings.length / items.length) * 100 : 0;
   const holderCount = holderRows.length;
-  const firstItem = items[0] ?? null;
   const featuredPreviewImages = items
     .slice(0, 5)
     .map((item) => normalizePublicMediaUrl(item.imageUrl) || baseCollection.avatarUrl);
   const heroBackgroundImage =
-    (firstItem ? normalizePublicMediaUrl(firstItem.imageUrl) : "") ||
-    baseCollection.bannerUrl;
+    pickCollectionHeroBackground({
+      bannerUrl: baseCollection.bannerUrl,
+      avatarUrl: baseCollection.avatarUrl,
+      itemImageUrls: items.map((item) => item.imageUrl)
+    }) || placeholderSvg(draft.name, "Creator collection", "#2081e2", true);
   const holders = await Promise.all(
     holderRows.map(async (holder) => ({
       ...(await buildProfile(holder.ownerAddress, holder.quantity, totalVolumeRaw.toString())),
@@ -1765,9 +2027,55 @@ export async function getItemData(contract: string, tokenId: string) {
 }
 
 export async function getTokensData(filters: { search: string; sort: string }) {
+  const creatorCollectionRecords = await listCreatorCollections();
+  const tokenRows = await Promise.all(
+    creatorCollectionRecords.map(async (record) => {
+      const summary = await toPublicCreatorCollectionSummary(record);
+      return {
+        slug: record.slug,
+        name: record.name,
+        symbol: record.symbol || record.standard,
+        chain: record.chainName || nodeConfig.network.chainName,
+        price: summary.floorDisplay,
+        volume24h: summary.volumeDisplay,
+        marketCap: summary.badgeText || formatCreatorCollectionStatus(record.status),
+        holders: String(summary.items),
+        change: record.deploymentMode === "official" ? "Official" : "Fallback",
+        iconUrl: summary.avatarUrl,
+        sortFloor: BigInt(summary.floorPriceRaw || "0"),
+        sortVolume: BigInt(summary.totalVolumeRaw || "0"),
+        sortItems: summary.items
+      };
+    })
+  );
+
+  const normalizedSearch = filters.search.trim().toLowerCase();
+  const sorted = tokenRows
+    .filter((token) =>
+      !normalizedSearch
+        ? true
+        : [
+            token.name,
+            token.symbol,
+            token.slug,
+            token.chain,
+            token.marketCap
+          ].some((value) => value.toLowerCase().includes(normalizedSearch))
+    )
+    .sort((left, right) => {
+      if (filters.sort === "price") {
+        return left.sortFloor === right.sortFloor ? 0 : left.sortFloor > right.sortFloor ? -1 : 1;
+      }
+      if (filters.sort === "owners") {
+        return right.sortItems - left.sortItems;
+      }
+      return left.sortVolume === right.sortVolume ? 0 : left.sortVolume > right.sortVolume ? -1 : 1;
+    })
+    .map(({ sortFloor: _sortFloor, sortItems: _sortItems, sortVolume: _sortVolume, ...token }) => token);
+
   return {
     filters,
-    tokens: [] as TokenRecord[]
+    tokens: sorted satisfies TokenRecord[]
   };
 }
 
@@ -2020,6 +2328,9 @@ function buildCollectionCreateActivities(records: CreatorCollectionRecord[]) {
     collectionName: record.name,
     itemId: record.slug,
     itemName: record.name,
+    imageUrl:
+      resolveCollectionMediaUrl(record.avatarUrl, record.slug, "avatar") ||
+      placeholderSvg(record.name, record.symbol || "Collection", "#2081e2"),
     from: shortenAddress(record.ownerAddress),
     to: record.contractAddress ? "contract deployed" : "draft saved",
     fromAddress: record.ownerAddress,
@@ -2177,52 +2488,70 @@ export async function getProfileData(slug: string): Promise<ProfileResponse | nu
           sameAddress(entry.toAddress, normalizedAddress)
       )
   );
-  const saleActivities = walletSales.map((sale) => ({
-    id: `wallet-sale-${sale.txHash}`,
-    type: "sale",
-    collectionSlug:
-      collectionsByAddress.get(sale.collectionAddress.toLowerCase())?.slug ??
-      sale.collectionAddress.toLowerCase(),
-    collectionAddress: sale.collectionAddress,
-    collectionName:
-      collectionsByAddress.get(sale.collectionAddress.toLowerCase())?.name ??
-      sale.collectionAddress,
-    itemId: sale.tokenId,
-    itemName:
-      allItems.find((item) => sameAddress(item.contractAddress, sale.collectionAddress) && item.tokenId === sale.tokenId)?.name ??
-      `Token #${sale.tokenId}`,
-    from: shortenAddress(sale.seller),
-    to: shortenAddress(sale.buyer),
-    fromAddress: sale.seller,
-    toAddress: sale.buyer,
-    priceRaw: sale.priceRaw,
-    priceDisplay: formatNative(sale.priceRaw),
-    ageLabel: ageLabel(sale.createdAt),
-    createdAt: sale.createdAt
-  } satisfies ActivityRecord));
-  const transferActivities = walletTransfers.map((transfer) => ({
-    id: `wallet-transfer-${transfer.txHash}-${transfer.logIndex}`,
-    type: transfer.eventType,
-    collectionSlug:
-      collectionsByAddress.get(transfer.collectionAddress.toLowerCase())?.slug ??
-      transfer.collectionAddress.toLowerCase(),
-    collectionAddress: transfer.collectionAddress,
-    collectionName:
-      collectionsByAddress.get(transfer.collectionAddress.toLowerCase())?.name ??
-      transfer.collectionAddress,
-    itemId: transfer.tokenId,
-    itemName:
-      allItems.find((item) => sameAddress(item.contractAddress, transfer.collectionAddress) && item.tokenId === transfer.tokenId)?.name ??
-      `Token #${transfer.tokenId}`,
-    from: shortenAddress(transfer.fromAddress),
-    to: shortenAddress(transfer.toAddress),
-    fromAddress: transfer.fromAddress,
-    toAddress: transfer.toAddress,
-    priceRaw: "0",
-    priceDisplay: transfer.eventType === "mint" ? "Mint" : "-",
-    ageLabel: ageLabel(transfer.createdAt),
-    createdAt: transfer.createdAt
-  } satisfies ActivityRecord));
+  const saleActivities = walletSales.map((sale) => {
+    const matchedItem = allItems.find(
+      (item) => sameAddress(item.contractAddress, sale.collectionAddress) && item.tokenId === sale.tokenId
+    );
+    const collectionImage =
+      collectionsByAddress.get(sale.collectionAddress.toLowerCase())?.avatarUrl || "";
+    return {
+      id: `wallet-sale-${sale.txHash}`,
+      type: "sale",
+      collectionSlug:
+        collectionsByAddress.get(sale.collectionAddress.toLowerCase())?.slug ??
+        sale.collectionAddress.toLowerCase(),
+      collectionAddress: sale.collectionAddress,
+      collectionName:
+        collectionsByAddress.get(sale.collectionAddress.toLowerCase())?.name ??
+        sale.collectionAddress,
+      itemId: sale.tokenId,
+      itemName: matchedItem?.name ?? `Token #${sale.tokenId}`,
+      imageUrl:
+        normalizePublicMediaUrl(matchedItem?.imageUrl ?? "") ||
+        matchedItem?.imageUrl ||
+        collectionImage,
+      from: shortenAddress(sale.seller),
+      to: shortenAddress(sale.buyer),
+      fromAddress: sale.seller,
+      toAddress: sale.buyer,
+      priceRaw: sale.priceRaw,
+      priceDisplay: formatNative(sale.priceRaw),
+      ageLabel: ageLabel(sale.createdAt),
+      createdAt: sale.createdAt
+    } satisfies ActivityRecord;
+  });
+  const transferActivities = walletTransfers.map((transfer) => {
+    const matchedItem = allItems.find(
+      (item) => sameAddress(item.contractAddress, transfer.collectionAddress) && item.tokenId === transfer.tokenId
+    );
+    const collectionImage =
+      collectionsByAddress.get(transfer.collectionAddress.toLowerCase())?.avatarUrl || "";
+    return {
+      id: `wallet-transfer-${transfer.txHash}-${transfer.logIndex}`,
+      type: transfer.eventType,
+      collectionSlug:
+        collectionsByAddress.get(transfer.collectionAddress.toLowerCase())?.slug ??
+        transfer.collectionAddress.toLowerCase(),
+      collectionAddress: transfer.collectionAddress,
+      collectionName:
+        collectionsByAddress.get(transfer.collectionAddress.toLowerCase())?.name ??
+        transfer.collectionAddress,
+      itemId: transfer.tokenId,
+      itemName: matchedItem?.name ?? `Token #${transfer.tokenId}`,
+      imageUrl:
+        normalizePublicMediaUrl(matchedItem?.imageUrl ?? "") ||
+        matchedItem?.imageUrl ||
+        collectionImage,
+      from: shortenAddress(transfer.fromAddress),
+      to: shortenAddress(transfer.toAddress),
+      fromAddress: transfer.fromAddress,
+      toAddress: transfer.toAddress,
+      priceRaw: "0",
+      priceDisplay: transfer.eventType === "mint" ? "Mint" : "-",
+      ageLabel: ageLabel(transfer.createdAt),
+      createdAt: transfer.createdAt
+    } satisfies ActivityRecord;
+  });
 
   const activity = dedupeActivities([
     ...collectionCreateActivities,

@@ -9,7 +9,6 @@
       { "label": "Discover", "href": "/" },
       { "label": "Collections", "href": "/collections" },
       { "label": "Tokens", "href": "/tokens" },
-      { "label": "Swap", "href": "/swap" },
       { "label": "Create", "href": "/create" },
       { "label": "Drops", "href": "/drops" },
       { "label": "Activity", "href": "/activity" },
@@ -26,7 +25,6 @@
       { "label": "Drops", "href": "/drops", "icon": "calendar" },
       { "label": "Studio", "href": "/studio", "icon": "menu" },
       { "label": "Create", "href": "/create", "icon": "brush" },
-      { "label": "Swap", "href": "/swap", "icon": "anchor" },
       { "label": "Rewards", "href": "/rewards", "icon": "spark" },
       { "label": "Profile", "href": "/profile", "icon": "profile" },
       { "label": "Support", "href": "/support", "icon": "help" }
@@ -66,8 +64,8 @@
   "network": {
     "key": "reef",
     "chainId": 13939,
-    "chainName": "Reef Chain",
-    "rpcUrl": "http://34.123.142.246:8545",
+    "chainName": "Reef Testnet",
+    "rpcUrl": "http://host.docker.internal:8545",
     "nativeCurrency": {
       "name": "Reef",
       "symbol": "REEF",
@@ -115,6 +113,10 @@
       "marketplace1155": {
         "address": "",
         "verified": false
+      },
+      "dropManager": {
+        "address": "",
+        "verified": false
       }
     },
     "seaport": {
@@ -142,6 +144,11 @@
       "address": "",
       "verified": false,
       "source": "reef-native-v1"
+    },
+    "dropManager": {
+      "address": "",
+      "verified": false,
+      "source": "reef-drop-manager-v2"
     },
     "collection": {
       "address": "",

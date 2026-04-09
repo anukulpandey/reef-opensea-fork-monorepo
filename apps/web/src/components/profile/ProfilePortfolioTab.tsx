@@ -12,33 +12,63 @@ export default function ProfilePortfolioTab({
   galleries
 }: ProfilePortfolioTabProps) {
   return (
-    <section className="pagePanel profileTabPanel">
-      <div className="profilePortfolioGrid">
+    <section className="pagePanel profileTabPanel profilePortfolioShell">
+      <div className="profilePortfolioOverview" role="list">
         {portfolio.summaryCards.map((card) => (
-          <article className="profilePortfolioCard" key={card.label}>
+          <article className="profilePortfolioMetric" key={card.label} role="listitem">
             <span>{card.label}</span>
             <strong>{card.value}</strong>
             <p>{card.note}</p>
           </article>
         ))}
       </div>
-      <div className="profilePortfolioSplit">
-        <article className="profilePortfolioPanel">
-          <h3>Tracked tokens</h3>
-          {tokens.length === 0 ? <p>No token balances to show.</p> : null}
+      <div className="profilePortfolioTables">
+        <article className="profilePortfolioSection">
+          <div className="profilePortfolioSectionHeader">
+            <h3>Tracked tokens</h3>
+            <span>{tokens.length} assets</span>
+          </div>
+          <div className="profilePortfolioTableHeader">
+            <span>Asset</span>
+            <span>Balance</span>
+          </div>
+          {tokens.length === 0 ? (
+            <div className="profilePortfolioEmpty">
+              <strong>No token balances yet</strong>
+              <p>Tracked wallet balances will appear here as soon as they exist.</p>
+            </div>
+          ) : null}
           {tokens.map((token) => (
             <div className="profilePortfolioRow" key={token.id}>
-              <span>{token.symbol}</span>
+              <div className="profilePortfolioIdentity">
+                <strong>{token.symbol}</strong>
+                <span>{token.name}</span>
+              </div>
               <strong>{token.balanceDisplay}</strong>
             </div>
           ))}
         </article>
-        <article className="profilePortfolioPanel">
-          <h3>Collection exposure</h3>
-          {galleries.length === 0 ? <p>No NFT collections in this wallet yet.</p> : null}
+        <article className="profilePortfolioSection">
+          <div className="profilePortfolioSectionHeader">
+            <h3>Collection exposure</h3>
+            <span>{galleries.length} collections</span>
+          </div>
+          <div className="profilePortfolioTableHeader">
+            <span>Collection</span>
+            <span>Exposure</span>
+          </div>
+          {galleries.length === 0 ? (
+            <div className="profilePortfolioEmpty">
+              <strong>No NFT collections yet</strong>
+              <p>Collection exposure updates here once this wallet owns NFTs.</p>
+            </div>
+          ) : null}
           {galleries.map((gallery) => (
             <div className="profilePortfolioRow" key={gallery.id}>
-              <span>{gallery.collectionName}</span>
+              <div className="profilePortfolioIdentity">
+                <strong>{gallery.collectionName}</strong>
+                <span>{gallery.creatorName}</span>
+              </div>
               <strong>{gallery.itemCount} items</strong>
             </div>
           ))}

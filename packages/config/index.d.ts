@@ -78,6 +78,7 @@ export type PublicContracts = {
     editionFactory1155: ContractRef;
     marketplace721: ContractRef;
     marketplace1155: ContractRef;
+    dropManager: ContractRef;
   };
   seaport: ContractRef;
   conduitController: ContractRef;
@@ -85,6 +86,7 @@ export type PublicContracts = {
   creatorFactory: ContractRef;
   collectionImplementation: ContractRef;
   marketplace: ContractRef;
+  dropManager: ContractRef;
   collection: {
     address: string;
     slug: string;

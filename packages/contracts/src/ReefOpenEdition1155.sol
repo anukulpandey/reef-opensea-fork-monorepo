@@ -29,6 +29,7 @@ contract ReefOpenEdition1155 is ERC1155, Ownable, ERC2981 {
         address royaltyReceiver_,
         uint96 royaltyBps_
     ) ERC1155("") {
+        require(initialOwner_ != address(0), "ZERO_OWNER");
         name = name_;
         symbol = symbol_;
         _contractMetadataUri = contractMetadataUri_;
@@ -46,12 +47,22 @@ contract ReefOpenEdition1155 is ERC1155, Ownable, ERC2981 {
         _contractMetadataUri = contractMetadataUri_;
     }
 
+    function setDefaultRoyalty(address receiver, uint96 feeNumerator) external onlyOwner {
+        if (receiver == address(0) || feeNumerator == 0) {
+            _deleteDefaultRoyalty();
+            return;
+        }
+
+        _setDefaultRoyalty(receiver, feeNumerator);
+    }
+
     function mintCreator(
         address to,
         uint256 quantity,
         string calldata tokenUri_
     ) external onlyOwner returns (uint256 tokenId) {
         require(quantity > 0, "INVALID_QUANTITY");
+        require(to != address(0), "ZERO_RECIPIENT");
         tokenId = nextTokenId++;
         _mint(to, tokenId, quantity, "");
         _tokenUris[tokenId] = tokenUri_;

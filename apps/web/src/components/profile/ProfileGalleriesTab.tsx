@@ -1,5 +1,6 @@
 import { NavLink } from "react-router-dom";
 
+import AmbientEmptyState from "../AmbientEmptyState";
 import { assetUrl } from "../../lib/presentation";
 import type { ProfileGalleryRecord } from "../../types";
 
@@ -18,28 +19,25 @@ export default function ProfileGalleriesTab({
 }: ProfileGalleriesTabProps) {
   if (galleries.length === 0) {
     return (
-      <section className="profileEmptyBoard profileTabPanel">
-        <div className="profileEmptyRow">
-          <div className="profileEmptySlot" />
-          <div className="profileEmptySlot" />
-          <div className="profileEmptySlot" />
-          <div className="profileEmptySlot" />
-        </div>
-        <div className={isOwnProfile ? "profileEmptyMessage hasAction" : "profileEmptyMessage"}>
-          <img src={emptyArtwork} alt="" />
-          <h2>{isOwnProfile ? "Build your first gallery" : "No galleries found"}</h2>
-          <p>
-            {isOwnProfile
-              ? "Your NFTs will group into collection galleries automatically as you mint and collect."
-              : "This profile does not have any collection galleries yet."}
-          </p>
-          {isOwnProfile ? (
+      <AmbientEmptyState
+        className="profileTabPanel"
+        variant="cards"
+        artwork={emptyArtwork}
+        eyebrow="Galleries"
+        title={isOwnProfile ? "Build your first gallery" : "No galleries found"}
+        copy={
+          isOwnProfile
+            ? "Your NFTs will group into collection galleries automatically as you mint and collect."
+            : "This profile does not have any collection galleries yet."
+        }
+        actions={
+          isOwnProfile ? (
             <button className="actionButton secondary profileEmptyAction" type="button" onClick={onCreateCollection}>
               Create a collection
             </button>
-          ) : null}
-        </div>
-      </section>
+          ) : null
+        }
+      />
     );
   }
 

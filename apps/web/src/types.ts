@@ -79,6 +79,7 @@ export type ActivityRecord = {
   collectionName?: string;
   itemId: string;
   itemName: string;
+  imageUrl?: string;
   from: string;
   to: string;
   fromAddress?: string;

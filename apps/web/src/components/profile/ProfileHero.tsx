@@ -34,16 +34,19 @@ export default function ProfileHero({
           <div className="profileTitleBlock">
             <div className="profileTitleRow">
               <h1>{profileLabel}</h1>
+              <span className="profileTitleDivider" aria-hidden="true" />
               {titleActions}
             </div>
-            <span className="profileTag">{profileTag}</span>
-            <p>{profile.bio}</p>
+            <div className="profileHeroMeta">
+              <span className="profileTag">{profileTag}</span>
+            </div>
+            {profile.bio ? <p className="profileHeroBio">{profile.bio}</p> : null}
           </div>
         </div>
 
         <div className="profileHeroStats">
           <article>
-            <span>Portfolio</span>
+            <span>USD Value</span>
             <strong>{usdValue}</strong>
           </article>
           <article>

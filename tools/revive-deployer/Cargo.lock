@@ -3597,6 +3597,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "pallet-balances"
+version = "46.0.0"
+dependencies = [
+ "docify",
+ "frame-benchmarking",
+ "frame-support",
+ "frame-system",
+ "log",
+ "parity-scale-codec",
+ "scale-info",
+ "sp-core",
+ "sp-runtime",
+]
+
+[[package]]
 name = "pallet-revive"
 version = "0.12.2"
 dependencies = [
@@ -3618,6 +3633,7 @@ dependencies = [
  "num-bigint",
  "num-integer",
  "num-traits",
+ "pallet-balances",
  "pallet-revive-fixtures",
  "pallet-revive-proc-macro",
  "pallet-revive-uapi",

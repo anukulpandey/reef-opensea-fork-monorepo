@@ -1,3 +1,4 @@
+import AmbientEmptyState from "../AmbientEmptyState";
 import type { ProfileOfferRecord } from "../../types";
 
 type ProfileOffersTabProps = {
@@ -8,7 +9,15 @@ export default function ProfileOffersTab({ offers }: ProfileOffersTabProps) {
   return (
     <section className="pagePanel profileTabPanel">
       <div className="profileOfferTable">
-        {offers.length === 0 ? <p className="panelBody">No live offers found for this wallet.</p> : null}
+        {offers.length === 0 ? (
+          <AmbientEmptyState
+            compact
+            variant="rows"
+            eyebrow="Offers"
+            title="No live offers found"
+            copy="Incoming and outgoing offers tied to this wallet will appear here once they exist."
+          />
+        ) : null}
         {offers.map((offer) => (
           <article className="profileOfferRow" key={offer.id}>
             <div>

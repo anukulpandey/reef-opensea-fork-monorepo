@@ -1,33 +1,64 @@
+import type { CSSProperties } from "react";
+import { useEffect, useState } from "react";
 import { assetUrl, themeStyle } from "../../lib/presentation";
 import type { CollectionSummary } from "../../types";
 
+const AUTO_ADVANCE_MS = 3600;
+
 type DiscoverHeroPanelProps = {
-  heroCollection: CollectionSummary | null;
+  heroCollections: CollectionSummary[];
   onCreateCollection: () => void;
   onLaunchNft: () => void;
   onOpenStudio: () => void;
 };
 
 export default function DiscoverHeroPanel({
-  heroCollection,
+  heroCollections,
   onCreateCollection,
   onLaunchNft,
   onOpenStudio
 }: DiscoverHeroPanelProps) {
-  const hasHero = Boolean(heroCollection);
+  const [activeIndex, setActiveIndex] = useState(0);
+  const [isPaused, setIsPaused] = useState(false);
+  const hasHero = heroCollections.length > 0;
+  const heroCollection = hasHero ? heroCollections[activeIndex] ?? heroCollections[0] ?? null : null;
+  const slideKey = heroCollections.map((collection) => collection.slug).join("|");
+  const heroTheme = themeStyle(
+    heroCollection?.theme ?? {
+      accent: "#2081e2",
+      accentSoft: "rgba(32,129,226,0.16)",
+      heroBackground: "#10161f",
+      panelSurface: "#16181b",
+      textOnHero: "#f8fafc"
+    }
+  ) as CSSProperties;
+  const heroStyle = {
+    ...heroTheme,
+    "--carousel-duration": `${AUTO_ADVANCE_MS}ms`
+  } as CSSProperties;
+
+  useEffect(() => {
+    setActiveIndex(0);
+  }, [slideKey]);
+
+  useEffect(() => {
+    if (heroCollections.length <= 1 || isPaused) {
+      return;
+    }
+
+    const timer = window.setInterval(() => {
+      setActiveIndex((current) => (current + 1) % heroCollections.length);
+    }, AUTO_ADVANCE_MS);
+
+    return () => window.clearInterval(timer);
+  }, [heroCollections.length, isPaused]);
 
   return (
     <section
       className="heroSurface"
-      style={themeStyle(
-        heroCollection?.theme ?? {
-          accent: "#2081e2",
-          accentSoft: "rgba(32,129,226,0.16)",
-          heroBackground: "#10161f",
-          panelSurface: "#16181b",
-          textOnHero: "#f8fafc"
-        }
-      )}
+      onMouseEnter={() => setIsPaused(true)}
+      onMouseLeave={() => setIsPaused(false)}
+      style={heroStyle}
     >
       {hasHero && heroCollection ? (
         <>
@@ -70,9 +101,17 @@ export default function DiscoverHeroPanel({
           </div>
         </div>
       )}
-      <div className="carouselDots">
-        {Array.from({ length: 5 }, (_, index) => (
-          <span key={index} className={index === 0 ? "dot active" : "dot"} />
+      <div className={isPaused ? "carouselDots paused" : "carouselDots"}>
+        {(hasHero ? heroCollections : Array.from({ length: 1 })).map((_, index) => (
+          <button
+            key={index}
+            type="button"
+            className={index === activeIndex ? "dot active" : "dot"}
+            aria-label={`Show slide ${index + 1}`}
+            onClick={() => setActiveIndex(index)}
+          >
+            <span className="dotProgress" aria-hidden="true" />
+          </button>
         ))}
       </div>
     </section>

@@ -19,6 +19,29 @@ function paletteFor(seed: string) {
   return palette[hashSeed(seed) % palette.length] ?? palette[0];
 }
 
+function createSeededRandom(seed: string) {
+  let state = (hashSeed(seed) ^ 0x9e3779b9) >>> 0;
+  return () => {
+    state = (state * 1664525 + 1013904223) >>> 0;
+    return state / 0x100000000;
+  };
+}
+
+function shiftHex(hex: string, amount: number) {
+  const normalized = hex.replace("#", "");
+  if (normalized.length !== 6) {
+    return hex;
+  }
+
+  const channels = [0, 2, 4].map((offset) => {
+    const value = Number.parseInt(normalized.slice(offset, offset + 2), 16);
+    const next = Math.max(0, Math.min(255, value + amount));
+    return next.toString(16).padStart(2, "0");
+  });
+
+  return `#${channels.join("")}`;
+}
+
 export function userInitials(value: string) {
   const cleaned = value.trim();
   if (!cleaned) {
@@ -33,25 +56,75 @@ export function userInitials(value: string) {
 
 export function buildAvatarArt(seed: string, label: string) {
   const [primary, secondary, shadow] = paletteFor(seed);
-  const initials = userInitials(label);
+  const rng = createSeededRandom(`${seed}:${label}`);
+  const warm = shiftHex(primary, 38);
+  const cool = shiftHex(secondary, -12);
+  const deep = shiftHex(shadow, -8);
+  const shapePalette = [primary, secondary, warm, cool];
+  const shellShapes = Array.from({ length: 5 }, (_, index) => {
+    const width = 72 + rng() * 72;
+    const height = 54 + rng() * 76;
+    const x = 96 + (rng() - 0.5) * 58;
+    const y = 96 + (rng() - 0.5) * 58;
+    const rotation = -42 + rng() * 84;
+    const radius = Math.min(width, height) * (0.24 + rng() * 0.16);
+    const fill = shapePalette[Math.floor(rng() * shapePalette.length)] ?? primary;
+    const opacity = 0.92 - index * 0.1;
+    const left = x - width / 2;
+    const top = y - height / 2;
+
+    return `<rect x="${left.toFixed(2)}" y="${top.toFixed(2)}" width="${width.toFixed(2)}" height="${height.toFixed(2)}" rx="${radius.toFixed(2)}" fill="${fill}" fill-opacity="${opacity.toFixed(2)}" transform="rotate(${rotation.toFixed(2)} 96 96)" />`;
+  }).join("");
+  const orbitShapes = Array.from({ length: 3 }, (_, index) => {
+    const radius = 14 + rng() * 24;
+    const cx = 52 + rng() * 88;
+    const cy = 52 + rng() * 88;
+    const fills = [warm, "#f8fafc", secondary];
+    const fill = fills[index] ?? warm;
+    const opacity = index === 1 ? 0.32 : 0.22;
+    return `<circle cx="${cx.toFixed(2)}" cy="${cy.toFixed(2)}" r="${radius.toFixed(2)}" fill="${fill}" fill-opacity="${opacity.toFixed(2)}" />`;
+  }).join("");
+
   const svg = `
     <svg xmlns="http://www.w3.org/2000/svg" width="192" height="192" viewBox="0 0 192 192" fill="none">
       <defs>
-        <linearGradient id="bg" x1="18" y1="16" x2="170" y2="176" gradientUnits="userSpaceOnUse">
-          <stop stop-color="${primary}"/>
-          <stop offset="1" stop-color="${shadow}"/>
+        <linearGradient id="shell" x1="18" y1="12" x2="170" y2="178" gradientUnits="userSpaceOnUse">
+          <stop stop-color="${shiftHex(primary, -12)}"/>
+          <stop offset="0.55" stop-color="${deep}"/>
+          <stop offset="1" stop-color="#0b0f14"/>
         </linearGradient>
-        <radialGradient id="glow" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(62 44) rotate(48) scale(118 108)">
-          <stop stop-color="${secondary}" stop-opacity="0.95"/>
-          <stop offset="1" stop-color="${secondary}" stop-opacity="0"/>
+        <linearGradient id="field" x1="36" y1="28" x2="156" y2="164" gradientUnits="userSpaceOnUse">
+          <stop stop-color="${shiftHex(primary, 18)}"/>
+          <stop offset="0.5" stop-color="${secondary}"/>
+          <stop offset="1" stop-color="${cool}"/>
+        </linearGradient>
+        <radialGradient id="highlight" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(66 46) rotate(42) scale(98 88)">
+          <stop stop-color="#ffffff" stop-opacity="0.34"/>
+          <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
         </radialGradient>
+        <radialGradient id="shadowWash" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(146 150) rotate(145) scale(92 84)">
+          <stop stop-color="#020617" stop-opacity="0.34"/>
+          <stop offset="1" stop-color="#020617" stop-opacity="0"/>
+        </radialGradient>
+        <clipPath id="avatarClip">
+          <rect x="24" y="24" width="144" height="144" rx="42"/>
+        </clipPath>
       </defs>
-      <rect width="192" height="192" rx="52" fill="url(#bg)"/>
-      <circle cx="50" cy="42" r="42" fill="url(#glow)"/>
-      <circle cx="146" cy="144" r="40" fill="${secondary}" fill-opacity="0.18"/>
-      <circle cx="38" cy="138" r="26" fill="${shadow}" fill-opacity="0.4"/>
-      <path d="M136 28c12 12 19 27 19 43 0 35-26 58-59 58-20 0-35-8-45-20 12 27 38 47 70 47 43 0 75-31 75-75 0-23-9-39-22-53h-38Z" fill="white" fill-opacity="0.08"/>
-      <text x="96" y="108" text-anchor="middle" fill="white" font-family="Inter, Arial, sans-serif" font-size="58" font-weight="700" letter-spacing="-2">${initials}</text>
+      <rect width="192" height="192" rx="44" fill="#0d1014"/>
+      <rect x="9" y="9" width="174" height="174" rx="38" fill="url(#shell)"/>
+      <rect x="9" y="9" width="174" height="174" rx="38" stroke="rgba(255,255,255,0.08)"/>
+      <g clip-path="url(#avatarClip)">
+        <rect x="24" y="24" width="144" height="144" rx="42" fill="url(#field)"/>
+        <rect x="24" y="24" width="144" height="144" rx="42" fill="rgba(7,10,14,0.14)"/>
+        ${shellShapes}
+        ${orbitShapes}
+        <circle cx="96" cy="96" r="26" fill="rgba(255,255,255,0.1)"/>
+        <circle cx="96" cy="96" r="14" fill="rgba(255,255,255,0.3)"/>
+        <rect x="24" y="24" width="144" height="144" rx="42" fill="url(#highlight)"/>
+        <rect x="24" y="24" width="144" height="144" rx="42" fill="url(#shadowWash)"/>
+      </g>
+      <rect x="24" y="24" width="144" height="144" rx="42" stroke="rgba(255,255,255,0.08)"/>
+      <path d="M38 40C54 24 80 18 104 20" stroke="rgba(255,255,255,0.18)" stroke-width="10" stroke-linecap="round"/>
     </svg>
   `;
   return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;

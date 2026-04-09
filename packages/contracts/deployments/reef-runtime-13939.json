@@ -1,14 +1,14 @@
 {
   "chainId": 13939,
-  "chainName": "Reef Chain",
+  "chainName": "Reef Testnet",
   "rpcUrl": "http://127.0.0.1:8545",
-  "deployer": "0x212e2A4545ee7AC59837212F9860DbC245090B6f",
-  "generatedAt": "2026-04-07T17:37:50.782Z",
+  "deployer": "0x6dAcaE67EC045B86De16a224b6f27EaC1b047572",
+  "generatedAt": "2026-04-09T16:41:41.561Z",
   "probe": {
     "verified": true,
-    "address": "0xce3f75b12ca7128a3d3cebd806b5a5a88467d9b7",
-    "txHash": "0x4680b588008501fdcbfcc46b536e5d7a997dc763bfa81122c4d9144e1955be2f",
-    "blockNumber": 25,
+    "address": "0x9ff870802be2b769fa4eae4f61b85cf273725760",
+    "txHash": "0xda93a3afb9974de86012047ff82d3790c2176fce58dcfa7444014dd7a81b902f",
+    "blockNumber": 14,
     "reason": "Reef returned bytecode for the deployment probe."
   },
   "contracts": {
@@ -36,28 +36,34 @@
     },
     "fallback": {
       "creatorFactory721": {
-        "address": "0x5da80f08835b6be25233a8ac7f20593ce277697a",
+        "address": "0x31dc26025d6311e47e43afcc37beb45d49eac33a",
         "verified": true,
-        "deploymentTxHash": "0xa597e6b5b908a1c7a10be35984696139aef617775b3bc72ee3837912efa3c5d4",
-        "blockNumber": 26
+        "deploymentTxHash": "0x15f488bca322d24b75a8938e5631583d67665e2e1a506017b8b525a7f6cd55cc",
+        "blockNumber": 15
       },
       "editionFactory1155": {
-        "address": "0xf1f7ef041e0602c40b1f92d41afe6a4c9e114027",
+        "address": "0x75b1ab2b755678d53f3c1ddd7b380941b0b65dc1",
         "verified": true,
-        "deploymentTxHash": "0x707cd780da6c878cbd64e376a678be9f59520921836bd748bc406072699a406a",
-        "blockNumber": 27
+        "deploymentTxHash": "0x481ddb5446f6ee0566df6127d9a92d5934ad4b492d86b4cb7b88c09e2e92df1e",
+        "blockNumber": 16
       },
       "marketplace721": {
-        "address": "0xdbd5a41a5d1d787c23073fadb234eb2512178248",
+        "address": "0x628e09153dbacfb0a4aa7cef0a80c2046019ffb2",
         "verified": true,
-        "deploymentTxHash": "0x3f121fda0108b5e31dfef04fafd95510932a640df27cd576b12911db38445e4a",
-        "blockNumber": 28
+        "deploymentTxHash": "0xe2776f8803458b6a1859e1052bc450118a76c9647e533de285fe120c7ff665db",
+        "blockNumber": 17
       },
       "marketplace1155": {
-        "address": "0xa62efe6d9688ab2c7d19c654713e8f25d8c6dd9e",
+        "address": "0x5e9d035a4502c1bfa25f1f51fa7bcab2c2d9c1b2",
         "verified": true,
-        "deploymentTxHash": "0x727b3f56d5cc2e34f8428eb2de139456176dcf7fe087871748001fa01614ef46",
-        "blockNumber": 29
+        "deploymentTxHash": "0xc17ea33cbb039a3277264def649b361c111d5d0e40313389f7dcac822fdbdbb2",
+        "blockNumber": 18
+      },
+      "dropManager": {
+        "address": "0xc1d2d590f329a05660b20e0a36add9d6fc851c84",
+        "verified": true,
+        "deploymentTxHash": "0x9f5e75b52360c268033229335bb49c02840af97716216c3a7385d0d44a6268e1",
+        "blockNumber": 19
       }
     }
   },
@@ -67,7 +73,7 @@
       "erc721": {
         "enabled": true,
         "mode": "fallback",
-        "factoryAddress": "0x5da80f08835b6be25233a8ac7f20593ce277697a",
+        "factoryAddress": "0x31dc26025d6311e47e43afcc37beb45d49eac33a",
         "implementationAddress": "",
         "marketplaceMode": "fallback",
         "reason": ""
@@ -75,7 +81,7 @@
       "erc1155": {
         "enabled": true,
         "mode": "fallback",
-        "factoryAddress": "0xf1f7ef041e0602c40b1f92d41afe6a4c9e114027",
+        "factoryAddress": "0x75b1ab2b755678d53f3c1ddd7b380941b0b65dc1",
         "implementationAddress": "",
         "marketplaceMode": "fallback",
         "reason": ""
@@ -85,13 +91,13 @@
       "erc721": {
         "enabled": true,
         "mode": "fallback",
-        "address": "0xdbd5a41a5d1d787c23073fadb234eb2512178248",
+        "address": "0x628e09153dbacfb0a4aa7cef0a80c2046019ffb2",
         "reason": ""
       },
       "erc1155": {
         "enabled": true,
         "mode": "fallback",
-        "address": "0xa62efe6d9688ab2c7d19c654713e8f25d8c6dd9e",
+        "address": "0x5e9d035a4502c1bfa25f1f51fa7bcab2c2d9c1b2",
         "reason": ""
       }
     }

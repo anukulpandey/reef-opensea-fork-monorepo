@@ -1,5 +1,6 @@
 import { NavLink } from "react-router-dom";
 
+import AmbientEmptyState from "../AmbientEmptyState";
 import { assetUrl } from "../../lib/presentation";
 import type { CollectionSummary } from "../../types";
 
@@ -18,50 +19,25 @@ export default function ProfileCreatedTab({
 }: ProfileCreatedTabProps) {
   if (collections.length === 0) {
     return (
-      <section className="profileCreatedBoard profileTabPanel">
-        <div className="collectionTableHeader collectionTableGhost">
-          <span />
-          <span>Collection</span>
-          <span>Floor Price</span>
-          <span>Vol</span>
-          <span>Sales</span>
-          <span>Owners</span>
-          <span>Supply</span>
-          <span>Last</span>
-        </div>
-        {[0, 1, 2, 3].map((index) => (
-          <div className="collectionTableRow collectionTableGhost" key={`ghost-${index}`}>
-            <span className="starSlot" />
-            <div className="collectionIdentity">
-              <span className="ghostAvatar" />
-              <div className="ghostStack">
-                <span className="ghostBar medium" />
-                <span className="ghostBar short" />
-              </div>
-            </div>
-            <span className="ghostBar short" />
-            <span className="ghostBar short" />
-            <span className="ghostBar short" />
-            <span className="ghostBar short" />
-            <span className="ghostBar short" />
-            <span className="ghostBar short" />
-          </div>
-        ))}
-        <div className={isOwnProfile ? "profileEmptyMessage hasAction" : "profileEmptyMessage"}>
-          <img src={emptyArtwork} alt="" />
-          <h2>{isOwnProfile ? "Start creating" : "No collections found"}</h2>
-          <p>
-            {isOwnProfile
-              ? "Create an NFT collection on OpenSea."
-              : "This profile has not created any collections yet."}
-          </p>
-          {isOwnProfile ? (
+      <AmbientEmptyState
+        className="profileTabPanel"
+        variant="table"
+        artwork={emptyArtwork}
+        eyebrow="Created"
+        title={isOwnProfile ? "Start creating" : "No collections found"}
+        copy={
+          isOwnProfile
+            ? "Create a collection, then publish NFTs into it from the Reef creator flow."
+            : "This profile has not created any collections yet."
+        }
+        actions={
+          isOwnProfile ? (
             <button className="actionButton secondary profileEmptyAction" type="button" onClick={onCreateCollection}>
               Create a collection
             </button>
-          ) : null}
-        </div>
-      </section>
+          ) : null
+        }
+      />
     );
   }
 

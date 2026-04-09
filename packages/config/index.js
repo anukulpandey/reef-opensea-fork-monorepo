@@ -373,6 +373,15 @@ export function resolveNodeAppConfig(options = {}) {
       verified:
         envBool(env.FALLBACK_MARKETPLACE_1155_VERIFIED) ||
         runtimeArtifact?.contracts?.fallback?.marketplace1155?.verified
+    }),
+    dropManager: normalizeContractRef(base.contracts.fallback.dropManager, {
+      address:
+        nonEmpty(env.FALLBACK_DROP_MANAGER_ADDRESS) ??
+        runtimeArtifact?.contracts?.fallback?.dropManager?.address ??
+        base.contracts.fallback.dropManager.address,
+      verified:
+        envBool(env.FALLBACK_DROP_MANAGER_VERIFIED) ||
+        runtimeArtifact?.contracts?.fallback?.dropManager?.verified
     })
   };
 
@@ -484,6 +493,19 @@ export function resolveNodeAppConfig(options = {}) {
       ...base.contracts.marketplace,
       address: marketplaceAddress,
       verified: marketplaceVerified
+    },
+    dropManager: {
+      ...base.contracts.dropManager,
+      address:
+        nonEmpty(env.DROP_MANAGER_ADDRESS) ??
+        runtimeArtifact?.contracts?.fallback?.dropManager?.address ??
+        base.contracts.dropManager.address,
+      verified:
+        envBool(env.DROP_MANAGER_VERIFIED) ||
+        Boolean(
+          runtimeArtifact?.contracts?.fallback?.dropManager?.verified ??
+          base.contracts.dropManager.verified
+        )
     },
     collection: {
       ...base.contracts.collection,

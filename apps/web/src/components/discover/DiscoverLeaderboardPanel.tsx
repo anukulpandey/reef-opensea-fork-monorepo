@@ -1,4 +1,5 @@
 import { NavLink } from "react-router-dom";
+import AmbientEmptyState from "../AmbientEmptyState";
 import { assetUrl } from "../../lib/presentation";
 import type { CollectionSummary, TokenRecord } from "../../types";
 
@@ -21,9 +22,13 @@ export default function DiscoverLeaderboardPanel({
       </div>
       {selectedAsset === "tokens" ? (
         tokenLeaders.length === 0 ? (
-          <div className="emptyShellState compact">
-            <p>No tokens to display.</p>
-          </div>
+          <AmbientEmptyState
+            compact
+            variant="rows"
+            eyebrow="Tokens"
+            title="No tokens to display"
+            copy="Token movers will appear here once live token activity is available."
+          />
         ) : (
           tokenLeaders.map((token) => (
             <article className="leaderRow" key={token.slug}>
@@ -43,9 +48,13 @@ export default function DiscoverLeaderboardPanel({
           ))
         )
       ) : leaderboardCollections.length === 0 ? (
-        <div className="emptyShellState compact">
-          <p>No live collections to display yet.</p>
-        </div>
+        <AmbientEmptyState
+          compact
+          variant="rows"
+          eyebrow="Collections"
+          title="No live collections to display yet"
+          copy="Newly published collections on Reef will appear here as soon as they go live."
+        />
       ) : (
         leaderboardCollections.map((collection) => (
           <NavLink to={`/collection/${collection.slug}`} className="leaderRow" key={collection.slug}>

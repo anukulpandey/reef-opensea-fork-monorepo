@@ -1,4 +1,5 @@
 import express from "express";
+import { JsonRpcProvider } from "ethers";
 import { z } from "zod";
 
 import {
@@ -23,14 +24,12 @@ import {
   getTokensData
 } from "./dataset.js";
 import {
-  archiveAdminDrop,
   createAuthNonce,
   consumeAuthNonce,
   getCreatorCollectionBySlug,
   getUserByAddress,
   insertTransfer,
   initializeDatabase,
-  listAdminDrops,
   listCreatorCollections,
   listListings,
   listSales,
@@ -38,12 +37,12 @@ import {
   upsertListingCreated,
   upsertUserProfile,
   upsertNft,
-  upsertCreatorCollection,
-  upsertAdminDrop
+  upsertCreatorCollection
 } from "./db.js";
 import { deployCreatorCollection } from "./deployer.js";
 import { checkIpfsHealth, pinFileToIpfs, pinJsonToIpfs } from "./ipfs.js";
 import { startIndexer } from "./indexer.js";
+import { archiveAdminDrop, listAdminDrops, upsertAdminDrop } from "./managed-drops.js";
 import { runtimeState, setCapability, setDeploymentMode } from "./runtime.js";
 import { initializeStorage, writeDataUrlAsset } from "./storage.js";
 
@@ -64,6 +63,79 @@ app.use(`${config.publicStorageBasePath}/ipfs`, express.static(config.storageIpf
 app.use(config.publicStorageBasePath, express.static(config.storagePublicRoot));
 
 syncRuntimeCapabilitiesFromConfig();
+
+const contractCodeCache = new Map<string, { code: string; expiresAt: number }>();
+const contractCodePending = new Map<string, Promise<string>>();
+const contractCodeCacheTtlMs = 20_000;
+const missingContractCodeCacheTtlMs = 4_000;
+
+function normalizeRpcUrl(rpcUrl: string) {
+  return rpcUrl.includes("host.docker.internal") && !process.env.RUNNING_IN_DOCKER
+    ? rpcUrl.replace("host.docker.internal", "127.0.0.1")
+    : rpcUrl;
+}
+
+async function readContractCode(address: string) {
+  const normalizedAddress = address.trim().toLowerCase();
+  if (!normalizedAddress) {
+    return "0x";
+  }
+
+  const cached = contractCodeCache.get(normalizedAddress);
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.code;
+  }
+
+  const inflight = contractCodePending.get(normalizedAddress);
+  if (inflight) {
+    return inflight;
+  }
+
+  const pending = new JsonRpcProvider(normalizeRpcUrl(config.rpcUrl))
+    .getCode(normalizedAddress)
+    .catch(() => "0x");
+  contractCodePending.set(
+    normalizedAddress,
+    pending.then((code) => {
+      contractCodeCache.set(normalizedAddress, {
+        code,
+        expiresAt: Date.now() + (code === "0x" ? missingContractCodeCacheTtlMs : contractCodeCacheTtlMs)
+      });
+      contractCodePending.delete(normalizedAddress);
+      return code;
+    })
+  );
+  return contractCodePending.get(normalizedAddress)!;
+}
+
+async function withCreatorCollectionState<T extends {
+  status: string;
+  contractAddress: string;
+}>(collection: T) {
+  if (!collection.contractAddress.trim()) {
+    return {
+      ...collection,
+      contractReady: false,
+      contractReason: "Collection contract has not been deployed yet."
+    };
+  }
+
+  const code = await readContractCode(collection.contractAddress);
+  if (code === "0x") {
+    return {
+      ...collection,
+      contractReady: false,
+      contractReason:
+        "Saved collection contract is unavailable on Reef. Redeploy the collection before minting NFTs."
+    };
+  }
+
+  return {
+    ...collection,
+    contractReady: true,
+    contractReason: ""
+  };
+}
 
 app.get("/health", async (_, response) => {
   response.json({
@@ -356,14 +428,22 @@ app.get("/creator/collections", async (request, response) => {
   const owner = String(request.query.owner ?? "").trim().toLowerCase();
   response.json({
     owner,
-    collections: await listCreatorCollections(owner || undefined)
+    collections: await Promise.all(
+      (await listCreatorCollections(owner || undefined)).map((collection) =>
+        withCreatorCollectionState(collection)
+      )
+    )
   });
 });
 
 app.get("/collections", async (request, response) => {
   const owner = String(request.query.owner ?? "").trim().toLowerCase();
   response.json({
-    collections: await listCreatorCollections(owner || undefined)
+    collections: await Promise.all(
+      (await listCreatorCollections(owner || undefined)).map((collection) =>
+        withCreatorCollectionState(collection)
+      )
+    )
   });
 });
 
@@ -373,7 +453,7 @@ app.get("/creator/collections/:slug", async (request, response) => {
     response.status(404).json({ error: "Creator collection not found" });
     return;
   }
-  response.json(collection);
+  response.json(await withCreatorCollectionState(collection));
 });
 
 app.get("/collections/:slug", async (request, response) => {
@@ -382,14 +462,18 @@ app.get("/collections/:slug", async (request, response) => {
     response.status(404).json({ error: "Creator collection not found" });
     return;
   }
-  response.json(collection);
+  response.json(await withCreatorCollectionState(collection));
 });
 
 app.get("/collections/owner/:address", async (request, response) => {
   const owner = String(request.params.address ?? "").trim().toLowerCase();
   response.json({
     owner,
-    collections: await listCreatorCollections(owner || undefined)
+    collections: await Promise.all(
+      (await listCreatorCollections(owner || undefined)).map((collection) =>
+        withCreatorCollectionState(collection)
+      )
+    )
   });
 });
 
@@ -428,7 +512,8 @@ app.post("/creator/collections/deploy", async (request, response) => {
       symbol: payload.symbol,
       contractUri: payload.contractUri,
       ownerAddress: auth.address,
-      royaltyBps: payload.royaltyBps
+      royaltyBps: payload.royaltyBps,
+      factoryAddress: creatorCapability.factoryAddress
     });
 
     await upsertCreatorCollection({
@@ -443,7 +528,7 @@ app.post("/creator/collections/deploy", async (request, response) => {
       chainName: payload.chainName,
       standard: payload.standard,
       deploymentMode: creatorCapability.mode,
-      factoryAddress: creatorCapability.factoryAddress ?? "",
+      factoryAddress: deployment.factoryAddress,
       marketplaceMode: payload.marketplaceMode || creatorCapability.marketplaceMode || "blocked",
       contractUri: payload.contractUri,
       contractAddress: deployment.address,
@@ -458,7 +543,7 @@ app.post("/creator/collections/deploy", async (request, response) => {
       deploymentTxHash: deployment.txHash,
       blockNumber: deployment.blockNumber,
       deploymentMode: creatorCapability.mode,
-      factoryAddress: creatorCapability.factoryAddress ?? "",
+      factoryAddress: deployment.factoryAddress,
       marketplaceMode: payload.marketplaceMode || creatorCapability.marketplaceMode || "blocked"
     });
   } catch (error) {
@@ -819,12 +904,16 @@ app.get("/search/collections/:query", async (request, response) => {
   const query = String(request.params.query ?? "").trim().toLowerCase();
   const collections = await listCreatorCollections();
   response.json({
-    collections: collections.filter((collection) =>
-      !query
-        ? true
-        : collection.name.toLowerCase().includes(query) ||
-          collection.slug.toLowerCase().includes(query) ||
-          collection.symbol.toLowerCase().includes(query)
+    collections: await Promise.all(
+      collections
+        .filter((collection) =>
+          !query
+            ? true
+            : collection.name.toLowerCase().includes(query) ||
+              collection.slug.toLowerCase().includes(query) ||
+              collection.symbol.toLowerCase().includes(query)
+        )
+        .map((collection) => withCreatorCollectionState(collection))
     )
   });
 });
@@ -888,6 +977,25 @@ async function handleCreatorMint(request: express.Request, response: express.Res
       collection.contractAddress.toLowerCase() !== payload.collectionAddress.toLowerCase()
     ) {
       response.status(400).json({ error: "Mint collection address does not match the saved creator collection." });
+      return;
+    }
+
+    const collectionState = await withCreatorCollectionState(collection);
+    if (
+      !collectionState.contractAddress.trim() ||
+      collectionState.status.toLowerCase() !== "ready"
+    ) {
+      response.status(409).json({
+        error: `Selected collection is ${collectionState.status}. Deploy the collection contract before minting.`
+      });
+      return;
+    }
+    if (!collectionState.contractReady) {
+      response.status(409).json({
+        error:
+          collectionState.contractReason ||
+          "Saved collection contract is unavailable on Reef. Redeploy the collection before minting NFTs."
+      });
       return;
     }
 
@@ -961,7 +1069,20 @@ function isImplicitDefaultStarterArtwork(url: string) {
   if (!svg) {
     return false;
   }
-  return svg.includes("Reef NFT") && svg.includes("Collector Edition") && svg.includes("orbFill");
+  return (
+    svg.includes('width="1200"') &&
+    svg.includes('height="1200"') &&
+    svg.includes('viewBox="0 0 1200 1200"') &&
+    svg.includes('fill="#0d1014"') &&
+    svg.includes('x="96" y="1020"') &&
+    svg.includes('x="96" y="1076"') &&
+    (
+      svg.includes('id="orbFill"') ||
+      svg.includes('id="maskFill"') ||
+      svg.includes('id="monolithFill"') ||
+      svg.includes('id="glyphFill"')
+    )
+  );
 }
 
 function normalizeCreatorMintImageUrl(
@@ -969,8 +1090,9 @@ function normalizeCreatorMintImageUrl(
   imageUrl: string
 ) {
   const normalized = imageUrl.trim();
+  const collectionFallback = collection.avatarUrl.trim() || collection.bannerUrl.trim() || "";
   if (!normalized || isImplicitDefaultStarterArtwork(normalized)) {
-    return collection.avatarUrl.trim() || collection.bannerUrl.trim() || normalized;
+    return collectionFallback;
   }
   return normalized;
 }

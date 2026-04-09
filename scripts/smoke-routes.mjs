@@ -52,6 +52,14 @@ const collectionsIndex = await expectJson("/dataset/collections");
 const connectedProfile = await expectJson(
   "/dataset/profile/0x212e2A4545ee7AC59837212F9860DbC245090B6f"
 );
+for (const key of ["galleries", "items", "tokens", "listings", "offers", "activity", "createdCollections"]) {
+  if (!Array.isArray(connectedProfile?.[key])) {
+    throw new Error(`Profile payload is missing live array field: ${key}`);
+  }
+}
+if (!connectedProfile?.portfolio || typeof connectedProfile.portfolio !== "object") {
+  throw new Error("Profile payload is missing portfolio summary");
+}
 const creatorSlug = bootstrap.featuredCollections?.[0]?.creatorSlug ?? "reef-admin";
 const primaryCollection =
   collectionsIndex.collections?.[0] ??
@@ -96,7 +104,6 @@ const webRoutes = [
   "/collections",
   "/collections?search=reef&sort=volume&category=all",
   "/tokens",
-  "/swap",
   "/create",
   "/create?collection=heatblast&batch=1",
   "/create/drop",

@@ -16,8 +16,24 @@ contract ReefCollectionFactory721 {
         string calldata symbol_,
         string calldata contractMetadataUri_
     ) external returns (address collection) {
+        return createCollection(name_, symbol_, contractMetadataUri_, 0);
+    }
+
+    function createCollection(
+        string calldata name_,
+        string calldata symbol_,
+        string calldata contractMetadataUri_,
+        uint96 royaltyBps_
+    ) public returns (address collection) {
         collection = address(
-            new ReefCollection(name_, symbol_, msg.sender, contractMetadataUri_)
+            new ReefCollection(
+                name_,
+                symbol_,
+                msg.sender,
+                contractMetadataUri_,
+                msg.sender,
+                royaltyBps_
+            )
         );
         emit CollectionCreated(msg.sender, collection, name_, symbol_);
     }

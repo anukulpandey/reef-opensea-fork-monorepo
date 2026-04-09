@@ -18,6 +18,7 @@
     "web:build": "npm run build --workspace @reef/web",
     "build": "npm run api:build && npm run web:build",
     "smoke:routes": "node scripts/smoke-routes.mjs",
+    "smoke:e2e:local": "node scripts/e2e-local-contract-check.mjs",
     "docker:up": "docker compose up --build -d",
     "docker:down": "docker compose down",
     "docker:logs": "docker compose logs -f",

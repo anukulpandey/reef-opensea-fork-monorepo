@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 
 import { NavLink } from "react-router-dom";
 
+import AmbientEmptyState from "../AmbientEmptyState";
 import { assetUrl } from "../../lib/presentation";
 import type { ItemRecord } from "../../types";
 
@@ -24,19 +25,13 @@ export default function ProfileItemsTab({
 }: ProfileItemsTabProps) {
   if (items.length === 0) {
     return (
-      <section className="profileEmptyBoard profileTabPanel">
-        <div className="profileEmptyRow">
-          <div className="profileEmptySlot" />
-          <div className="profileEmptySlot" />
-          <div className="profileEmptySlot" />
-          <div className="profileEmptySlot" />
-        </div>
-        <div className="profileEmptyMessage">
-          <img src={emptyArtwork} alt="" />
-          <h2>{emptyTitle}</h2>
-          <p>{emptyCopy}</p>
-        </div>
-      </section>
+      <AmbientEmptyState
+        className="profileTabPanel"
+        variant="cards"
+        artwork={emptyArtwork}
+        title={emptyTitle}
+        copy={emptyCopy}
+      />
     );
   }
 

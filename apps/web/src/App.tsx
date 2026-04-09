@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useRef, useState } from "react";
-import type { CSSProperties, ReactNode } from "react";
+import type { CSSProperties, FormEvent, ReactNode } from "react";
 import { BrowserProvider, Contract, Interface, JsonRpcProvider, formatEther, parseEther } from "ethers";
 import type { JsonRpcSigner } from "ethers";
 import type { PublicAppConfig } from "@reef/config";
@@ -19,7 +19,9 @@ import SectionHeader from "./components/SectionHeader";
 import DiscoverHeroPanel from "./components/discover/DiscoverHeroPanel";
 import DiscoverLeaderboardPanel from "./components/discover/DiscoverLeaderboardPanel";
 import FeaturedCollectionCard from "./components/discover/FeaturedCollectionCard";
+import AmbientEmptyState from "./components/AmbientEmptyState";
 import ProfileSetupModal from "./components/ProfileSetupModal";
+import TransactionProgressModal from "./components/TransactionProgressModal";
 import UserAvatar from "./components/UserAvatar";
 import ProfileHero from "./components/profile/ProfileHero";
 import ProfileTabBar from "./components/profile/ProfileTabBar";
@@ -31,14 +33,18 @@ import ProfileListingsTab from "./components/profile/ProfileListingsTab";
 import ProfileOffersTab from "./components/profile/ProfileOffersTab";
 import ProfileCreatedTab from "./components/profile/ProfileCreatedTab";
 import ProfileActivityTab from "./components/profile/ProfileActivityTab";
+import TraitBuilder from "./components/create/TraitBuilder";
 import { assetUrl, themeStyle } from "./lib/presentation";
 import type {
   ActivityRecord,
   CollectionSummary,
   DropRecord,
   ItemRecord,
+  ProfileGalleryRecord,
+  ProfilePortfolioSummary,
   ProfileSummary,
   ProfileResponse,
+  ProfileTokenHolding,
   SessionUser,
   StudioRecord,
   TokenRecord,
@@ -215,6 +221,8 @@ type CreatorCollectionDraft = {
   contractAddress: string;
   deploymentTxHash: string;
   status: string;
+  contractReady?: boolean;
+  contractReason?: string;
   createdAt: string;
   updatedAt: string;
 };
@@ -222,6 +230,14 @@ type CreatorCollectionDraft = {
 type CreatorCollectionsResponse = {
   owner: string;
   collections: CreatorCollectionDraft[];
+};
+
+type SearchCollectionsResponse = {
+  collections: CreatorCollectionDraft[];
+};
+
+type SearchUsersResponse = {
+  users: SessionUser[];
 };
 
 type MintQueueDraft = {
@@ -240,6 +256,23 @@ type MintQueueDraft = {
   error?: string;
 };
 
+type TraitEditorRow = {
+  id: string;
+  trait_type: string;
+  value: string;
+};
+
+type TransactionProgressTone = "processing" | "success" | "error";
+
+type TransactionProgressState = {
+  title: string;
+  message: string;
+  detail?: string;
+  steps: string[];
+  activeStep: number;
+  tone: TransactionProgressTone;
+};
+
 type WalletSession = {
   provider: BrowserProvider;
   signer: JsonRpcSigner;
@@ -254,9 +287,13 @@ type MarketplaceContextValue = {
   userRole: string;
   currentUser: SessionUser | null;
   status: string;
+  actionModal: TransactionProgressState | null;
   connectWallet: () => Promise<void>;
   getWalletSession: () => Promise<WalletSession | null>;
   setStatus: (value: string) => void;
+  showActionModal: (value: Omit<TransactionProgressState, "tone"> & { tone?: TransactionProgressTone }) => void;
+  updateActionModal: (value: Partial<TransactionProgressState>) => void;
+  hideActionModal: () => void;
   saveCurrentUserProfile: (input: { displayName: string; bio?: string; avatarUri?: string; bannerUri?: string }) => Promise<SessionUser | null>;
   refreshMarket: () => void;
   refreshNonce: number;
@@ -290,6 +327,7 @@ function resolveApiBaseUrl() {
 const apiBaseUrl = resolveApiBaseUrl();
 const authTokenStorageKey = "reef-opensea.auth.token";
 const authAddressStorageKey = "reef-opensea.auth.address";
+const dropsHeroVideoUrl = "/mecha.mp4";
 const MarketplaceContext = createContext<MarketplaceContextValue | null>(null);
 const collectionAbi = [
   "function ownerOf(uint256 tokenId) view returns (address)",
@@ -328,7 +366,7 @@ const creatorFactoryAbi = [
 ];
 const fallbackCreatorFactory721Abi = [
   "event CollectionCreated(address indexed creator, address indexed collection, string name, string symbol)",
-  "function createCollection(string name_, string symbol_, string contractMetadataUri_) returns (address collection)"
+  "function createCollection(string name_, string symbol_, string contractMetadataUri_, uint96 royaltyBps_) returns (address collection)"
 ];
 const editionFactoryAbi = [
   "event CollectionCreated(address indexed creator, address indexed collection, string name, string symbol)",
@@ -338,10 +376,53 @@ const transferEventInterface = new Interface([
   "event Transfer(address indexed from, address indexed to, uint256 indexed tokenId)"
 ]);
 
+const DEFAULT_TRAITS_JSON = '[\n  {\n    "trait_type": "Edition",\n    "value": "Creator"\n  }\n]';
+
 function placeholderAsset(label: string, accent = "#2081e2") {
   const safe = label.slice(0, 8).toUpperCase();
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="96" height="96" viewBox="0 0 96 96"><rect width="96" height="96" rx="48" fill="${accent}"/><text x="48" y="56" font-family="Arial,Helvetica,sans-serif" font-size="28" font-weight="700" text-anchor="middle" fill="white">${safe}</text></svg>`;
   return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
+}
+
+function creatorCollectionArtworkSource(
+  collection?: Pick<CreatorCollectionDraft, "avatarUrl" | "bannerUrl"> | null
+) {
+  return collection?.avatarUrl?.trim() || collection?.bannerUrl?.trim() || "";
+}
+
+function creatorCollectionArtworkPreview(
+  collection?: Pick<CreatorCollectionDraft, "avatarUrl" | "bannerUrl" | "symbol" | "name"> | null
+) {
+  const source = creatorCollectionArtworkSource(collection);
+  if (source) {
+    return assetUrl(source);
+  }
+  return placeholderAsset(collection?.symbol || collection?.name || "Reef");
+}
+
+function applyImageFallback(target: HTMLImageElement, label: string, accent = "#2081e2") {
+  if (target.dataset.fallbackApplied === "1") {
+    return;
+  }
+  target.dataset.fallbackApplied = "1";
+  target.src = placeholderAsset(label, accent);
+}
+
+function DropCoverImage({
+  drop,
+  className
+}: {
+  drop: Pick<DropRecord, "coverUrl" | "name">;
+  className?: string;
+}) {
+  return (
+    <img
+      className={className}
+      src={assetUrl(drop.coverUrl || placeholderAsset(drop.name, "#2081e2"))}
+      alt={drop.name}
+      onError={(event) => applyImageFallback(event.currentTarget, drop.name, "#2081e2")}
+    />
+  );
 }
 
 function iconPath(icon: string) {
@@ -443,6 +524,13 @@ function iconPath(icon: string) {
           <path d="M14 11h6v4h-6a2 2 0 1 1 0-4Z" />
         </>
       );
+    case "bell":
+      return (
+        <>
+          <path d="M9 18h6" />
+          <path d="M7 16h10l-1.1-1.7A6.3 6.3 0 0 1 15 10.9V10a3 3 0 1 0-6 0v.9c0 1.2-.3 2.4-.9 3.4L7 16Z" />
+        </>
+      );
     case "search":
       return (
         <>
@@ -450,10 +538,14 @@ function iconPath(icon: string) {
           <path d="m15.5 15.5 4 4" />
         </>
       );
+    case "chevron-down":
+      return <path d="m6 9 6 6 6-6" />;
     case "chevron-left":
       return <path d="m15 6-6 6 6 6" />;
     case "chevron-right":
       return <path d="m9 6 6 6-6 6" />;
+    case "collapse-left":
+      return <path d="m11 6-6 6 6 6M19 6l-6 6 6 6" />;
     case "close":
       return (
         <>
@@ -633,6 +725,74 @@ function sameAddress(left?: string, right?: string) {
   return Boolean(left && right && left.toLowerCase() === right.toLowerCase());
 }
 
+function isCreatorCollectionMintable(
+  collection?: Pick<CreatorCollectionDraft, "status" | "contractAddress" | "contractReady"> | null
+) {
+  return Boolean(
+    collection &&
+    collection.status.toLowerCase() === "ready" &&
+    collection.contractAddress.trim() &&
+    collection.contractReady !== false
+  );
+}
+
+function creatorCollectionMintBlockerMessage(
+  collection?: Pick<
+    CreatorCollectionDraft,
+    "status" | "contractAddress" | "contractReady" | "contractReason"
+  > | null
+) {
+  if (!collection) {
+    return "Choose a creator collection before minting.";
+  }
+  if (!collection.contractAddress.trim() || collection.status.toLowerCase() !== "ready") {
+    return `Selected collection is ${collection.status}. Deploy the collection contract before minting.`;
+  }
+  if (collection.contractReady === false) {
+    return (
+      collection.contractReason ||
+      "Selected collection contract is unavailable on Reef. Redeploy the collection before minting NFTs."
+    );
+  }
+  return "";
+}
+
+function formatFilterLabel(value: string) {
+  return value
+    .split("-")
+    .map((segment) => {
+      if (!segment) {
+        return segment;
+      }
+      if (segment.toLowerCase() === "pfps") {
+        return "PFPs";
+      }
+      return segment.charAt(0).toUpperCase() + segment.slice(1);
+    })
+    .join(" ");
+}
+
+function parseMetricNumber(value: string) {
+  if (!value) {
+    return null;
+  }
+  const numeric = Number.parseFloat(value.replace(/,/g, "").replace(/[^0-9.+-]/g, ""));
+  return Number.isFinite(numeric) ? numeric : null;
+}
+
+function compareBigIntStrings(left: string, right: string) {
+  try {
+    const leftValue = BigInt(left || "0");
+    const rightValue = BigInt(right || "0");
+    if (leftValue === rightValue) {
+      return 0;
+    }
+    return leftValue > rightValue ? 1 : -1;
+  } catch {
+    return 0;
+  }
+}
+
 function randomSaltHex() {
   const bytes = new Uint8Array(32);
   if (globalThis.crypto?.getRandomValues) {
@@ -645,18 +805,73 @@ function randomSaltHex() {
   return `0x${Array.from(bytes, (value) => value.toString(16).padStart(2, "0")).join("")}`;
 }
 
-function getReefTransactionOverrides(
+function withReefGasBuffer(estimate: bigint, kind: "collection" | "marketplace") {
+  const buffer = kind === "marketplace" ? estimate / 25n : estimate / 20n;
+  return estimate + buffer + 1n;
+}
+
+async function getReefTransactionOverrides(
   config: PublicAppConfig,
+  session: Pick<WalletSession, "address" | "provider">,
+  request?: {
+    to?: string | null;
+    data?: string | null;
+    value?: bigint | number | string | null;
+  },
   kind: "collection" | "marketplace" = "collection"
 ) {
   if (config.network.key !== "reef") {
     return {};
   }
 
+  const overrides: {
+    type?: 2;
+    gasPrice?: bigint;
+    maxFeePerGas?: bigint;
+    maxPriorityFeePerGas?: bigint;
+    gasLimit?: bigint;
+  } = {};
+  const feeData = await session.provider.getFeeData().catch(() => null);
+
+  if (feeData?.maxFeePerGas != null) {
+    overrides.type = 2;
+    overrides.maxFeePerGas = feeData.maxFeePerGas;
+    overrides.maxPriorityFeePerGas = feeData.maxPriorityFeePerGas ?? 0n;
+  } else if (feeData?.gasPrice != null) {
+    overrides.gasPrice = feeData.gasPrice;
+  }
+
+  if (request?.to && request.data) {
+    const estimatedGas = await session.provider
+      .estimateGas({
+        from: session.address,
+        to: request.to,
+        data: request.data,
+        value: request.value == null ? undefined : BigInt(request.value)
+      })
+      .catch(() => null);
+    if (estimatedGas != null) {
+      overrides.gasLimit = withReefGasBuffer(estimatedGas, kind);
+    }
+  }
+
+  return overrides;
+}
+
+async function buildContractWriteRequest(
+  contract: Contract,
+  methodName: string,
+  args: unknown[],
+  session: WalletSession,
+  config: PublicAppConfig,
+  kind: "collection" | "marketplace" = "collection"
+) {
+  const contractMethod = contract.getFunction(methodName);
+  const txRequest = await contractMethod.populateTransaction(...args);
+  const txOverrides = await getReefTransactionOverrides(config, session, txRequest, kind);
   return {
-    type: 0 as const,
-    gasPrice: 1_000_000_000n,
-    gasLimit: kind === "marketplace" ? 8_000_000_000n : 8_000_000_000n
+    ...txRequest,
+    ...txOverrides
   };
 }
 
@@ -708,8 +923,29 @@ async function waitForTransactionReceiptWithFallback(
   throw new Error("Transaction was submitted but Reef did not return a receipt in time. Check your wallet activity, then refresh the page.");
 }
 
-async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${apiBaseUrl}${path}`, init);
+async function fetchJson<T>(path: string, init?: RequestInit, timeoutMs?: number): Promise<T> {
+  const controller = timeoutMs ? new AbortController() : null;
+  const timer = controller
+    ? globalThis.setTimeout(() => controller.abort(), timeoutMs)
+    : null;
+
+  let response: Response;
+  try {
+    response = await fetch(`${apiBaseUrl}${path}`, {
+      ...init,
+      signal: controller?.signal ?? init?.signal
+    });
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") {
+      throw new Error(`Request timed out after ${Math.round((timeoutMs ?? 0) / 1000)}s for ${path}`);
+    }
+    throw error;
+  } finally {
+    if (timer) {
+      globalThis.clearTimeout(timer);
+    }
+  }
+
   if (!response.ok) {
     let detail = "";
     try {
@@ -720,6 +956,10 @@ async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
   }
   return (await response.json()) as T;
 }
+
+const uploadRequestTimeoutMs = 15_000;
+const mutationRequestTimeoutMs = 12_000;
+const deployRequestTimeoutMs = 50_000;
 
 function withAuthorization(headers: HeadersInit | undefined, token: string) {
   return {
@@ -741,6 +981,48 @@ function buildQuery(params: Record<string, string>) {
 
 function normalizeFilterValue(value: string) {
   return value.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-");
+}
+
+function sleepMs(ms: number) {
+  return new Promise((resolve) => globalThis.setTimeout(resolve, ms));
+}
+
+function normalizeReefRelayErrorMessage(message: string) {
+  const detail = message.trim();
+  if (!detail) {
+    return "Failed to create collection.";
+  }
+
+  if (detail.includes("Reef rejected the fallback collection factory call")) {
+    return detail;
+  }
+
+  if (/temporarily banned/i.test(detail)) {
+    return (
+      "Reef is throttling repeated relayed collection deploy attempts right now. " +
+      "Your draft is safe, but publishing is still blocked on the live node. Wait a moment and retry once."
+    );
+  }
+
+  if (/failed to estimate gas/i.test(detail) || /execution reverted/i.test(detail)) {
+    return (
+      "Reef rejected the fallback collection factory call. " +
+      "The live Reef runtime is currently reverting collection creation, so this environment cannot publish a new collection right now."
+    );
+  }
+
+  if (/invalid transaction/i.test(detail)) {
+    return "Reef rejected the relayed collection deployment as an invalid transaction.";
+  }
+
+  if (/revive-deployer/i.test(detail) || /eth_sendRawTransaction/i.test(detail)) {
+    return (
+      "Reef rejected the relayed collection deployment. " +
+      "Refresh the page and try again, or wait a moment if the node is throttling repeated deploy attempts."
+    );
+  }
+
+  return detail;
 }
 
 function useRemoteData<T>(path: string | null, refreshKey?: number) {
@@ -803,6 +1085,7 @@ export default function App() {
   const [profileSetupOpen, setProfileSetupOpen] = useState(false);
   const [profileSetupSaving, setProfileSetupSaving] = useState(false);
   const [status, setStatus] = useState("Loading marketplace...");
+  const [actionModal, setActionModal] = useState<TransactionProgressState | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -830,6 +1113,35 @@ export default function App() {
 
   function refreshMarket() {
     setRefreshNonce((value) => value + 1);
+  }
+
+  function showActionModal(
+    value: Omit<TransactionProgressState, "tone"> & { tone?: TransactionProgressTone }
+  ) {
+    setActionModal({
+      title: value.title,
+      message: value.message,
+      detail: value.detail,
+      steps: value.steps,
+      activeStep: value.activeStep,
+      tone: value.tone ?? "processing"
+    });
+  }
+
+  function updateActionModal(value: Partial<TransactionProgressState>) {
+    setActionModal((current) => {
+      if (!current) {
+        return null;
+      }
+      return {
+        ...current,
+        ...value
+      };
+    });
+  }
+
+  function hideActionModal() {
+    setActionModal(null);
   }
 
   function normalizeSessionUser(user: SessionUser | undefined, fallbackAddress: string): SessionUser {
@@ -1035,9 +1347,13 @@ export default function App() {
         userRole,
         currentUser,
         status,
+        actionModal,
         connectWallet,
         getWalletSession,
         setStatus,
+        showActionModal,
+        updateActionModal,
+        hideActionModal,
         saveCurrentUserProfile,
         refreshMarket,
         refreshNonce
@@ -1049,7 +1365,7 @@ export default function App() {
             <Route index element={<DiscoverPage />} />
             <Route path="collections" element={<CollectionsPage />} />
             <Route path="tokens" element={<TokensPage />} />
-            <Route path="swap" element={<SwapPage />} />
+            <Route path="swap" element={<Navigate to="/support" replace />} />
             <Route path="drops" element={<DropsPage />} />
             <Route path="activity" element={<ActivityPage />} />
             <Route path="rewards" element={<RewardsPage />} />
@@ -1085,6 +1401,7 @@ export default function App() {
           onClose={() => setProfileSetupOpen(false)}
           onSubmit={saveCurrentUserProfile}
         />
+        <TransactionProgressModal state={actionModal} />
       </>
     </MarketplaceContext.Provider>
   );
@@ -1107,18 +1424,141 @@ function AppShell() {
   const navigate = useNavigate();
   const location = useLocation();
   const [search, setSearch] = useState("");
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchResults, setSearchResults] = useState<{
+    loading: boolean;
+    collections: CreatorCollectionDraft[];
+    users: SessionUser[];
+  }>({
+    loading: false,
+    collections: [],
+    users: []
+  });
   const [sidebarExpanded, setSidebarExpanded] = useState(false);
+  const searchFieldRef = useRef<HTMLFormElement | null>(null);
   const shellReady = bootstrap.runtime.services.database && bootstrap.runtime.services.storage;
   const profileHref = account ? `/profile/${account}` : "/profile";
-  const accountLabel = currentUser?.displayName?.trim() || (account ? shortenAddress(account) : "Connect Wallet");
+  const accountLabel = account ? shortenAddress(account) : "Connect Wallet";
   const sidebarItems = isAdmin
     ? [...bootstrap.config.site.sidebarNav, { label: "Admin", href: "/admin", icon: "settings" }]
     : bootstrap.config.site.sidebarNav;
+  const [brandItem, ...navItems] = sidebarItems;
 
   useEffect(() => {
     const params = new URLSearchParams(location.search);
     setSearch(params.get("search") ?? "");
   }, [location.search]);
+
+  useEffect(() => {
+    setSearchOpen(false);
+  }, [location.pathname, location.search]);
+
+  useEffect(() => {
+    if (!searchOpen) {
+      return;
+    }
+
+    function handlePointerDown(event: MouseEvent) {
+      const target = event.target;
+      if (!(target instanceof Node)) {
+        return;
+      }
+      if (!searchFieldRef.current?.contains(target)) {
+        setSearchOpen(false);
+      }
+    }
+
+    document.addEventListener("mousedown", handlePointerDown);
+    return () => {
+      document.removeEventListener("mousedown", handlePointerDown);
+    };
+  }, [searchOpen]);
+
+  useEffect(() => {
+    const query = search.trim();
+    if (query.length < 2) {
+      setSearchResults({
+        loading: false,
+        collections: [],
+        users: []
+      });
+      return;
+    }
+
+    let cancelled = false;
+    const timer = globalThis.setTimeout(() => {
+      setSearchResults((current) => ({
+        loading: true,
+        collections: current.collections,
+        users: current.users
+      }));
+
+      Promise.all([
+        fetchJson<SearchCollectionsResponse>(`/search/collections/${encodeURIComponent(query)}`),
+        fetchJson<SearchUsersResponse>(`/search/users/${encodeURIComponent(query)}`)
+      ])
+        .then(([collectionResults, userResults]) => {
+          if (!cancelled) {
+            setSearchResults({
+              loading: false,
+              collections: collectionResults.collections ?? [],
+              users: userResults.users ?? []
+            });
+          }
+        })
+        .catch(() => {
+          if (!cancelled) {
+            setSearchResults({
+              loading: false,
+              collections: [],
+              users: []
+            });
+          }
+        });
+    }, 180);
+
+    return () => {
+      cancelled = true;
+      globalThis.clearTimeout(timer);
+    };
+  }, [search]);
+
+  const trimmedSearch = search.trim();
+  const normalizedSearch = trimmedSearch.toLowerCase();
+  const showSearchResults = searchOpen && trimmedSearch.length >= 2;
+
+  function openSearchTarget(target: string) {
+    navigate(target);
+    setSearchOpen(false);
+  }
+
+  function handleSearchSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!trimmedSearch) {
+      openSearchTarget("/collections");
+      return;
+    }
+
+    const exactCollection = searchResults.collections.find((collection) =>
+      [collection.name, collection.slug, collection.symbol].some(
+        (value) => value.trim().toLowerCase() === normalizedSearch
+      )
+    );
+    if (exactCollection) {
+      openSearchTarget(`/collection/${exactCollection.slug}`);
+      return;
+    }
+
+    const exactUser = searchResults.users.find((user) =>
+      [user.displayName ?? "", user.address].some((value) => value.trim().toLowerCase() === normalizedSearch)
+    );
+    if (exactUser) {
+      openSearchTarget(`/profile/${exactUser.address}`);
+      return;
+    }
+
+    openSearchTarget(`/collections${buildQuery({ search: trimmedSearch })}`);
+  }
 
   return (
     <div className={sidebarExpanded ? "appShell sidebarExpanded" : "appShell"}>
@@ -1140,82 +1580,204 @@ function AppShell() {
           }
         }}
       >
-        {sidebarItems.map((item, index) => (
+        {brandItem ? (
           <NavLink
-            key={`${item.href}-${index}`}
-            to={item.href === "/profile" ? profileHref : item.href}
-            end={item.href === "/"}
-            className={({ isActive }) =>
-              index === 0
-                ? "sidebarButton brand"
-                : isActive
-                  ? "sidebarButton active"
-                  : "sidebarButton"
-            }
-            aria-label={item.label}
+            to={brandItem.href === "/profile" ? profileHref : brandItem.href}
+            end={brandItem.href === "/"}
+            className="sidebarButton brand"
+            aria-label={brandItem.label}
           >
             <span className="sidebarButtonInner">
-              {index === 0 ? <OpenSeaBadge className="logoBadge" /> : <Icon icon={item.icon} className="sidebarIcon" />}
-              {index === 0 ? null : <span className="sidebarLabel">{item.label}</span>}
+              <span className="sidebarGlyph brand">
+                <OpenSeaBadge className="logoBadge" />
+              </span>
+              <span className="sidebarBrandCopy">
+                <strong className="sidebarBrandName">{bootstrap.config.site.name}</strong>
+                <small className="sidebarBrandTagline">{bootstrap.config.site.tagline}</small>
+              </span>
             </span>
           </NavLink>
-        ))}
+        ) : null}
+
+        <div className="sidebarNavGroup">
+          <div className="sidebarSectionLabel">Marketplace</div>
+          {navItems.map((item) => (
+            <NavLink
+              key={item.href}
+              to={item.href === "/profile" ? profileHref : item.href}
+              end={item.href === "/"}
+              className={({ isActive }) => (isActive ? "sidebarButton active" : "sidebarButton")}
+              aria-label={item.label}
+            >
+              <span className="sidebarButtonInner">
+                <span className="sidebarGlyph">
+                  <Icon icon={item.icon} className="sidebarIcon" />
+                </span>
+                <span className="sidebarLabel">{item.label}</span>
+              </span>
+            </NavLink>
+          ))}
+        </div>
       </aside>
 
       <div className="workspace">
         <header className="topHeader">
           <form
+            ref={searchFieldRef}
             className="searchField"
-            onSubmit={(event) => {
-              event.preventDefault();
-              navigate(`/collections${buildQuery({ search })}`);
-            }}
+            onSubmit={handleSearchSubmit}
           >
             <Icon icon="search" className="searchIcon" />
             <input
               value={search}
-              onChange={(event) => setSearch(event.target.value)}
+              onChange={(event) => {
+                setSearch(event.target.value);
+                setSearchOpen(true);
+              }}
+              onFocus={() => setSearchOpen(true)}
               placeholder="Search OpenSea"
             />
             <span className="shortcutHint">/</span>
+
+            {showSearchResults ? (
+              <div className="searchResultsPanel">
+                <div className="searchResultsHeader">
+                  <strong>Search results</strong>
+                  <button
+                    className="searchResultsAction"
+                    type="button"
+                    onClick={() => openSearchTarget(`/collections${buildQuery({ search: trimmedSearch })}`)}
+                  >
+                    View all
+                  </button>
+                </div>
+
+                {searchResults.loading ? (
+                  <div className="searchResultsEmpty">Searching Reef marketplace...</div>
+                ) : null}
+
+                {!searchResults.loading && searchResults.collections.length === 0 && searchResults.users.length === 0 ? (
+                  <div className="searchResultsEmpty">No collections or profiles match “{trimmedSearch}”.</div>
+                ) : null}
+
+                {!searchResults.loading && searchResults.collections.length > 0 ? (
+                  <div className="searchResultsGroup">
+                    <span className="searchResultsLabel">Collections</span>
+                    {searchResults.collections.slice(0, 4).map((collection) => (
+                      <button
+                        key={collection.slug}
+                        className="searchResultItem"
+                        type="button"
+                        onClick={() => openSearchTarget(`/collection/${collection.slug}`)}
+                      >
+                        <img
+                          src={assetUrl(collection.avatarUrl || placeholderAsset(collection.symbol || collection.name, "#2081e2"))}
+                          alt={collection.name}
+                          onError={(event) => applyImageFallback(event.currentTarget, collection.name, "#2081e2")}
+                        />
+                        <span className="searchResultCopy">
+                          <strong>{collection.name}</strong>
+                          <small>
+                            {collection.symbol ? collection.symbol.toUpperCase() : "Collection"}
+                            {collection.contractAddress ? ` • ${shortenAddress(collection.contractAddress)}` : ""}
+                          </small>
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
+
+                {!searchResults.loading && searchResults.users.length > 0 ? (
+                  <div className="searchResultsGroup">
+                    <span className="searchResultsLabel">Profiles</span>
+                    {searchResults.users.slice(0, 4).map((user) => (
+                      <button
+                        key={user.address}
+                        className="searchResultItem"
+                        type="button"
+                        onClick={() => openSearchTarget(`/profile/${user.address}`)}
+                      >
+                        <UserAvatar
+                          address={user.address}
+                          displayName={user.displayName}
+                          src={user.avatarUri}
+                          className="userAvatar searchResultAvatar"
+                          alt={user.displayName || user.address}
+                        />
+                        <span className="searchResultCopy">
+                          <strong>{user.displayName?.trim() || shortenAddress(user.address)}</strong>
+                          <small>{shortenAddress(user.address)}</small>
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
           </form>
 
           <div className="headerActions">
-            <button
-              className="walletLink"
-              onClick={() => {
-                if (account) {
-                  navigate(profileHref);
-                  return;
-                }
-                void connectWallet();
-              }}
-            >
-              {accountLabel}
-            </button>
-            <button
-              className={account ? "iconCircle accountAvatarButton" : "iconCircle"}
-              type="button"
-              aria-label="Profile"
-              onClick={() => {
-                if (account) {
-                  navigate(profileHref);
-                  return;
-                }
-                navigate("/profile");
-              }}
-            >
-              {account ? (
-                <UserAvatar
-                  address={account}
-                  displayName={currentUser?.displayName}
-                  src={currentUser?.avatarUri}
-                  className="userAvatar headerUserAvatar"
-                />
-              ) : (
-                <Icon icon="profile" />
-              )}
-            </button>
+            {account ? (
+              <div className="headerActionRail" aria-label="Account actions">
+                <button className="headerChestButton" type="button" onClick={() => navigate("/rewards")}>
+                  <span className="headerChestGlyph" aria-hidden="true">🎁</span>
+                  <span>Open Chest</span>
+                </button>
+                <span className="headerDivider" aria-hidden="true" />
+                <button className="headerIconButton" type="button" aria-label="Notifications" onClick={() => navigate("/activity")}>
+                  <Icon icon="bell" />
+                </button>
+                <span className="headerDivider" aria-hidden="true" />
+                <button className="headerIconButton" type="button" aria-label="Marketplace activity" onClick={() => navigate("/activity")}>
+                  <Icon icon="activity" />
+                </button>
+                <span className="headerDivider" aria-hidden="true" />
+                <button
+                  className="headerBalanceButton"
+                  type="button"
+                  aria-label="Wallet balance"
+                  onClick={() => navigate(account ? `/profile/${account}?tab=portfolio` : "/profile")}
+                >
+                  <Icon icon="wallet" className="headerBalanceIcon" />
+                  <span>$0.00</span>
+                </button>
+                <button
+                  className="headerProfileTrigger"
+                  type="button"
+                  aria-label="Open profile"
+                  onClick={() => navigate(profileHref)}
+                >
+                  <UserAvatar
+                    address={account}
+                    displayName={currentUser?.displayName}
+                    src={currentUser?.avatarUri}
+                    className="userAvatar headerUserAvatar"
+                  />
+                  <Icon icon="chevron-down" className="headerProfileChevron" />
+                </button>
+              </div>
+            ) : (
+              <>
+                <button
+                  className="walletLink"
+                  onClick={() => {
+                    void connectWallet();
+                  }}
+                >
+                  {accountLabel}
+                </button>
+                <button
+                  className="iconCircle"
+                  type="button"
+                  aria-label="Profile"
+                  onClick={() => {
+                    navigate("/profile");
+                  }}
+                >
+                  <Icon icon="profile" />
+                </button>
+              </>
+            )}
           </div>
         </header>
 
@@ -1258,11 +1820,14 @@ function DiscoverPage() {
   const { bootstrap, refreshNonce } = useMarketplace();
   const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
+  const [collectionsCollapsed, setCollectionsCollapsed] = useState(false);
   const state = useRemoteData<DiscoverResponse>("/dataset/discover", refreshNonce);
   const selectedCategory = params.get("category") ?? "all";
   const selectedNetwork = params.get("network") ?? normalizeFilterValue(bootstrap.config.network.key);
   const selectedAsset = params.get("asset") ?? "nfts";
   const selectedTimeframe = params.get("timeframe") ?? "1d";
+  const marketView = params.get("marketView") ?? "table";
+  const marketPageRaw = Number.parseInt(params.get("marketPage") ?? "0", 10);
 
   return (
     <DataState state={state}>
@@ -1284,6 +1849,12 @@ function DiscoverPage() {
           (collection) => matchesNetwork(collection.chain) && matchesCategory(collection.category)
         );
         const tokenLeaders = data.tokenLeaders.filter((token) => matchesNetwork(token.chain));
+        const timeframeCollections =
+          selectedTimeframe === "1m" || selectedTimeframe === "5m" || selectedTimeframe === "15m" || selectedTimeframe === "1h"
+            ? (topMovers.length > 0 ? topMovers : trendingCollections)
+            : selectedTimeframe === "1d"
+              ? (topMovers.length > 0 ? topMovers : leaderboardCollections)
+              : (leaderboardCollections.length > 0 ? leaderboardCollections : trendingCollections);
         const heroCollection =
           data.heroCollection &&
           matchesNetwork(data.heroCollection.chain) &&
@@ -1292,8 +1863,24 @@ function DiscoverPage() {
             : leaderboardCollections[0] ?? trendingCollections[0] ?? topMovers[0] ?? null;
         const featuredCollections =
           trendingCollections.length > 0 ? trendingCollections : leaderboardCollections;
-        const collectionShelf = topMovers.length > 0 ? topMovers : featuredCollections;
+        const collectionShelf = timeframeCollections.length > 0 ? timeframeCollections : featuredCollections;
+        const heroCollections = [heroCollection, ...featuredCollections, ...topMovers]
+          .filter((collection): collection is CollectionSummary => Boolean(collection))
+          .filter(
+            (collection, index, collections) =>
+              collections.findIndex((candidate) => candidate.slug === collection.slug) === index
+          )
+          .slice(0, 5);
         const showPrimaryShelf = selectedAsset === "tokens" || featuredCollections.length > 0;
+        const rowsPerPage = marketView === "cards" ? 4 : 5;
+        const marketItemsCount = selectedAsset === "tokens" ? tokenLeaders.length : collectionShelf.length;
+        const marketPageCount = Math.max(1, Math.ceil(marketItemsCount / rowsPerPage));
+        const marketPage =
+          Number.isFinite(marketPageRaw) && marketPageRaw >= 0 ? Math.min(marketPageRaw, marketPageCount - 1) : 0;
+        const pageStart = marketPage * rowsPerPage;
+        const visibleCollections = collectionShelf.slice(pageStart, pageStart + rowsPerPage);
+        const visibleTokens = tokenLeaders.slice(pageStart, pageStart + rowsPerPage);
+        const canAdvanceMarketPage = marketPageCount > 1;
 
         return (
           <div className="darkPage">
@@ -1306,7 +1893,7 @@ function DiscoverPage() {
                       key={filter.label}
                       className={selectedCategory === value ? "chip active" : "chip"}
                       type="button"
-                      onClick={() => updateParams(params, setParams, { category: value })}
+                      onClick={() => updateParams(params, setParams, { category: value, marketPage: "0" })}
                     >
                       {filter.icon ? <Icon icon={filter.icon} className="chipIcon" /> : null}
                       {filter.label}
@@ -1325,7 +1912,7 @@ function DiscoverPage() {
                       type="button"
                       aria-label={filter.label}
                       title={filter.label}
-                      onClick={() => updateParams(params, setParams, { network: value })}
+                      onClick={() => updateParams(params, setParams, { network: value, marketPage: "0" })}
                     >
                       <NetworkDot label={filter.label} />
                       {filter.label}
@@ -1340,14 +1927,14 @@ function DiscoverPage() {
                 <button
                   className={selectedAsset === "nfts" ? "segment active" : "segment"}
                   type="button"
-                  onClick={() => updateParams(params, setParams, { asset: "nfts" })}
+                  onClick={() => updateParams(params, setParams, { asset: "nfts", marketPage: "0" })}
                 >
                   NFTs
                 </button>
                 <button
                   className={selectedAsset === "tokens" ? "segment active" : "segment"}
                   type="button"
-                  onClick={() => updateParams(params, setParams, { asset: "tokens" })}
+                  onClick={() => updateParams(params, setParams, { asset: "tokens", marketPage: "0" })}
                 >
                   Tokens
                 </button>
@@ -1359,31 +1946,31 @@ function DiscoverPage() {
                   const values = bootstrap.config.site.timeframes.map((value) => normalizeFilterValue(value));
                   const currentIndex = Math.max(values.indexOf(selectedTimeframe), 0);
                   const nextValue = values[(currentIndex + 1) % values.length] ?? "1d";
-                  updateParams(params, setParams, { timeframe: nextValue });
+                  updateParams(params, setParams, { timeframe: nextValue, marketPage: "0" });
                 }}
               >
                 {selectedTimeframe}
                 <Icon icon="chevron-right" className="microIcon" />
               </button>
               <button
-                className="iconChip"
+                className={marketView === "table" ? "iconChip active" : "iconChip"}
                 type="button"
-                aria-label="Table view"
-                onClick={() => updateParams(params, setParams, { asset: "nfts" })}
+                aria-label={marketView === "table" ? "Switch market board to compact rows" : "Switch market board to table view"}
+                onClick={() => updateParams(params, setParams, { marketView: marketView === "table" ? "cards" : "table", marketPage: "0" })}
               >
-                <Icon icon="table" />
+                <Icon icon={marketView === "table" ? "view-grid" : "table"} />
               </button>
               <button
                 className="iconChip"
                 type="button"
-                aria-label="Reset discover filters"
-                onClick={() =>
-                  updateParams(params, setParams, {
-                    category: "all",
-                    asset: "nfts",
-                    timeframe: "1d"
-                  })
-                }
+                aria-label="Show next market page"
+                disabled={!canAdvanceMarketPage}
+                onClick={() => {
+                  if (!canAdvanceMarketPage) {
+                    return;
+                  }
+                  updateParams(params, setParams, { marketPage: String((marketPage + 1) % marketPageCount) });
+                }}
               >
                 <Icon icon="chevron-right" />
               </button>
@@ -1391,7 +1978,7 @@ function DiscoverPage() {
 
             <div className="discoverLayout">
               <DiscoverHeroPanel
-                heroCollection={heroCollection}
+                heroCollections={heroCollections}
                 onCreateCollection={() => navigate("/create/collection")}
                 onLaunchNft={() => navigate("/create")}
                 onOpenStudio={() => navigate("/studio")}
@@ -1411,9 +1998,14 @@ function DiscoverPage() {
                 />
                 {selectedAsset === "tokens" ? (
                   tokenLeaders.length === 0 ? (
-                    <div className="panelSurface emptySection">
-                      <p className="panelBody">No tokens to display.</p>
-                    </div>
+                    <AmbientEmptyState
+                      compact
+                      className="emptySection"
+                      variant="rows"
+                      eyebrow="Tokens"
+                      title="No tokens to display"
+                      copy="Tracked Reef-native token movers will appear here once live token data is available."
+                    />
                   ) : (
                     <div className="tokenStrip">
                       {tokenLeaders.map((token) => (
@@ -1429,43 +2021,146 @@ function DiscoverPage() {
                     </div>
                   )
                 ) : (
-                  <div className="cardStack">
-                    {featuredCollections.slice(0, 4).map((collection) => (
-                      <FeaturedCollectionCard key={collection.slug} collection={collection} />
-                    ))}
-                  </div>
+                  <FeaturedCollectionShelf collections={featuredCollections.slice(0, 4)} />
                 )}
               </section>
             ) : null}
 
             <section className="sectionGrid discoverSecondaryGrid">
-              <div className="panelSurface">
-                <SectionHeader title="Collections" subtitle="Explore live creator collections across Reef" />
-                {collectionShelf.length === 0 ? (
-                  <div className="discoverPanelEmpty">
-                    <p className="panelBody">No live collections yet. Publish a collection to populate discover.</p>
-                    <div className="panelActionRow">
-                      <button className="actionButton secondary" type="button" onClick={() => navigate("/create/collection")}>
-                        Create collection
-                      </button>
-                      <button className="actionButton muted" type="button" onClick={() => navigate("/studio")}>
-                        Open Studio
-                      </button>
+              <div className="tableSurface discoverCollectionsSurface">
+                <div className="discoverCollectionsHeader">
+                  <SectionHeader
+                    title={selectedAsset === "tokens" ? "Tokens" : "Collections"}
+                    subtitle={
+                      selectedAsset === "tokens"
+                        ? "Track Reef-native market assets from the same discover controls."
+                        : "Explore live creator collections across Reef"
+                    }
+                  />
+                  <button
+                    className="discoverSectionCollapseButton"
+                    type="button"
+                    aria-expanded={!collectionsCollapsed}
+                    aria-controls="discover-collections-content"
+                    aria-label={collectionsCollapsed ? "Expand collections section" : "Collapse collections section"}
+                    onClick={() => setCollectionsCollapsed((current) => !current)}
+                  >
+                    <Icon
+                      icon="chevron-right"
+                      className={collectionsCollapsed ? "discoverSectionCollapseIcon collapsed" : "discoverSectionCollapseIcon"}
+                    />
+                  </button>
+                </div>
+                <div
+                  id="discover-collections-content"
+                  className={collectionsCollapsed ? "discoverCollectionsContent collapsed" : "discoverCollectionsContent"}
+                >
+                  {selectedAsset === "tokens" && tokenLeaders.length === 0 ? (
+                    <AmbientEmptyState
+                      className="discoverCollectionsEmpty"
+                      variant="table"
+                      artwork={buildProfileEmptyArtwork("items")}
+                      eyebrow="Tokens"
+                      title="No tokens found"
+                      copy="Tracked Reef assets will appear here once token market data is available."
+                    />
+                  ) : null}
+                  {selectedAsset === "nfts" && collectionShelf.length === 0 ? (
+                    <AmbientEmptyState
+                      className="discoverCollectionsEmpty"
+                      variant="table"
+                      artwork={buildProfileEmptyArtwork("created")}
+                      eyebrow="Collections"
+                      title="No live collections yet"
+                      copy="Publish a collection on Reef and it will start populating discover automatically."
+                      actions={
+                        <div className="panelActionRow">
+                          <button className="actionButton secondary" type="button" onClick={() => navigate("/create/collection")}>
+                            Create collection
+                          </button>
+                          <button className="actionButton muted" type="button" onClick={() => navigate("/studio")}>
+                            Open Studio
+                          </button>
+                        </div>
+                      }
+                    />
+                  ) : null}
+                  {selectedAsset === "nfts" && collectionShelf.length > 0 ? (
+                    marketView === "cards" ? (
+                      <div className="compactStack discoverCompactCollectionStack">
+                        {visibleCollections.map((collection) => (
+                          <DiscoverCollectionCompactRow key={collection.slug} collection={collection} />
+                        ))}
+                      </div>
+                    ) : (
+                    <div className="discoverCollectionsTable">
+                      <div className="collectionTableHeader discoverCollectionsTableHeader">
+                        <span />
+                        <span>Collection</span>
+                        <span>Floor Price</span>
+                        <span>1D Change</span>
+                        <span>Top Offer</span>
+                        <span>1D Vol</span>
+                        <span>1D Sales</span>
+                        <span>Owners</span>
+                      </div>
+                      {visibleCollections.map((collection) => (
+                        <DiscoverCollectionTableRow key={collection.slug} collection={collection} />
+                      ))}
                     </div>
-                  </div>
-                ) : (
-                  <div className="compactStack">
-                    {collectionShelf.map((collection) => (
-                      <CompactCollectionRow key={collection.slug} collection={collection} highlightChange />
-                    ))}
-                  </div>
-                )}
+                    )
+                  ) : null}
+                  {selectedAsset === "tokens" && tokenLeaders.length > 0 ? (
+                    marketView === "cards" ? (
+                      <div className="compactStack discoverCompactCollectionStack">
+                        {visibleTokens.map((token) => (
+                          <CompactTokenRow key={token.slug} token={token} />
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="discoverTokenBoard">
+                        <div className="collectionTableHeader tokenHeader discoverTokenBoardHeader">
+                          <span>Token</span>
+                          <span>Price</span>
+                          <span>Market Vol</span>
+                          <span>Status</span>
+                          <span>NFT Mints</span>
+                          <span>Mode</span>
+                        </div>
+                        {visibleTokens.map((token) => (
+                          <div className="tokenTableRow discoverTokenBoardRow" key={token.slug}>
+                            <div className="collectionIdentity">
+                              <img src={assetUrl(token.iconUrl)} alt={token.symbol} />
+                              <div>
+                                <strong>{token.name}</strong>
+                                <p>{token.symbol}</p>
+                              </div>
+                            </div>
+                            <span>{token.price}</span>
+                            <span>{token.volume24h}</span>
+                            <span>{token.marketCap}</span>
+                            <span>{token.holders}</span>
+                            <span className={token.change === "Read-only" ? "" : token.change.startsWith("-") ? "negative" : "positive"}>
+                              {token.change}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    )
+                  ) : null}
+                </div>
               </div>
 
-              <div className="panelSurface">
+              <div className="panelSurface discoverActivitySurface">
                 <SectionHeader title="Recent Activity" subtitle="Sales, listings, offers, and transfers" />
                 {data.activityFeed.length === 0 ? (
-                  <p className="panelBody">No activity yet.</p>
+                  <AmbientEmptyState
+                    compact
+                    variant="rows"
+                    eyebrow="Activity"
+                    title="No activity yet"
+                    copy="Sales, listings, offers, and transfers will appear here once the marketplace gets moving."
+                  />
                 ) : (
                   <div className="activityStack">
                     {data.activityFeed.slice(0, 6).map((entry) => (
@@ -1475,20 +2170,25 @@ function DiscoverPage() {
                 )}
               </div>
 
-              <div className="panelSurface">
+              <div className="panelSurface discoverDropsSurface">
                 <SectionHeader title="Drops" subtitle="Explore upcoming and live mints" />
                 {data.liveDrops.length === 0 ? (
-                  <div className="discoverPanelEmpty">
-                    <p className="panelBody">No drops to display.</p>
-                    <div className="panelActionRow">
-                      <button className="actionButton secondary" type="button" onClick={() => navigate("/create/drop")}>
-                        Create drop
-                      </button>
-                      <button className="actionButton muted" type="button" onClick={() => navigate("/drops")}>
-                        Open Drops
-                      </button>
-                    </div>
-                  </div>
+                  <AmbientEmptyState
+                    variant="cards"
+                    eyebrow="Drops"
+                    title="No drops to display"
+                    copy="Curated live and upcoming mints will show up here once a drop is scheduled."
+                    actions={
+                      <div className="panelActionRow">
+                        <button className="actionButton secondary" type="button" onClick={() => navigate("/create/drop")}>
+                          Create drop
+                        </button>
+                        <button className="actionButton muted" type="button" onClick={() => navigate("/drops")}>
+                          Open Drops
+                        </button>
+                      </div>
+                    }
+                  />
                 ) : (
                   <div className="compactStack">
                     {data.liveDrops.map((drop) => (
@@ -1507,10 +2207,20 @@ function DiscoverPage() {
 
 function CollectionsPage() {
   const { refreshNonce } = useMarketplace();
+  const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
   const search = params.get("search") ?? "";
   const view = params.get("view") ?? "top";
   const timeframe = params.get("timeframe") ?? "1d";
+  const sort = params.get("sort") ?? (view === "trending" ? "change" : view === "watchlist" ? "owners" : "volume");
+  const category = params.get("category") ?? "all";
+  const status = params.get("status") ?? "all";
+  const chain = params.get("chain") ?? "all";
+  const collectionSearch = params.get("collectionSearch") ?? "";
+  const chainSearch = params.get("chainSearch") ?? "";
+  const selectedCollection = params.get("collection") ?? "";
+  const density = params.get("density") ?? "dense";
+  const railCollapsed = params.get("rail") === "collapsed";
   const state = useRemoteData<CollectionsResponse>(
     `/dataset/collections${buildQuery({ search, view, timeframe })}`,
     refreshNonce
@@ -1519,77 +2229,369 @@ function CollectionsPage() {
 
   return (
     <DataState state={state}>
-      {(data) => (
-        <div className="darkPage">
-          <div className="collectionsToolbar">
-            <div className="chipRow">
-              <button className="iconChip" type="button" aria-label="Filters"><Icon icon="filter" /></button>
-              {["top", "trending", "watchlist"].map((item) => (
-                <button
-                  key={item}
-                  className={view === item ? "chip active" : "chip"}
-                  type="button"
-                  onClick={() => updateParams(params, setParams, { view: item })}
-                >
-                  {item.charAt(0).toUpperCase() + item.slice(1)}
-                </button>
-              ))}
-            </div>
+      {(data) => {
+        const categoryOptions = Array.from(
+          new Set(
+            [
+              ...bootstrap.config.site.discoverFilters.categories.map((filter) => normalizeFilterValue(filter.label)),
+              "memberships",
+              "music",
+              "photography",
+              "domain-names",
+              "sports-collectibles",
+              "virtual-worlds",
+              ...data.collections.map((collection) => normalizeFilterValue(collection.category))
+            ].filter(Boolean)
+          )
+        );
+        const chainOptions = Array.from(
+          new Set(
+            data.collections
+              .map((collection) => collection.chain)
+              .filter(Boolean)
+              .concat(bootstrap.config.network.chainName)
+          )
+        );
+        const visibleChainOptions = chainOptions.filter((option) =>
+          option.toLowerCase().includes(chainSearch.trim().toLowerCase())
+        );
+        const visibleCollections = data.collections.filter((collection) =>
+          collection.name.toLowerCase().includes(collectionSearch.trim().toLowerCase())
+        );
+        const filteredCollections = data.collections
+          .filter((collection) => {
+            if (category !== "all" && normalizeFilterValue(collection.category) !== category) {
+              return false;
+            }
+            if (
+              chain !== "all" &&
+              normalizeFilterValue(collection.chain) !== chain &&
+              normalizeFilterValue(bootstrap.config.network.chainName) !== chain
+            ) {
+              return false;
+            }
+            if (selectedCollection && collection.slug !== selectedCollection) {
+              return false;
+            }
+            if (collectionSearch.trim()) {
+              const query = collectionSearch.trim().toLowerCase();
+              if (
+                !collection.name.toLowerCase().includes(query) &&
+                !collection.creatorName.toLowerCase().includes(query)
+              ) {
+                return false;
+              }
+            }
+            if (status === "verified" && !collection.verified) {
+              return false;
+            }
+            if (status === "listed" && collection.floorPriceRaw === "0") {
+              return false;
+            }
+            if (status === "no-listings" && collection.floorPriceRaw !== "0") {
+              return false;
+            }
+            return true;
+          })
+          .sort((left, right) => {
+            switch (sort) {
+              case "floor":
+                return compareBigIntStrings(right.floorPriceRaw, left.floorPriceRaw);
+              case "change": {
+                const leftValue = parseMetricNumber(left.tableMetrics.change) ?? Number.NEGATIVE_INFINITY;
+                const rightValue = parseMetricNumber(right.tableMetrics.change) ?? Number.NEGATIVE_INFINITY;
+                return rightValue - leftValue;
+              }
+              case "offer": {
+                const leftValue = parseMetricNumber(left.tableMetrics.topOffer) ?? 0;
+                const rightValue = parseMetricNumber(right.tableMetrics.topOffer) ?? 0;
+                return rightValue - leftValue;
+              }
+              case "sales": {
+                const leftValue = parseMetricNumber(left.tableMetrics.sales) ?? 0;
+                const rightValue = parseMetricNumber(right.tableMetrics.sales) ?? 0;
+                return rightValue - leftValue;
+              }
+              case "owners":
+                return right.owners - left.owners;
+              case "listed":
+                return right.listedPercent - left.listedPercent;
+              case "volume":
+              default: {
+                const volumeSort = compareBigIntStrings(right.totalVolumeRaw, left.totalVolumeRaw);
+                if (volumeSort !== 0) {
+                  return volumeSort;
+                }
+                return right.owners - left.owners;
+              }
+            }
+          });
 
-            <div className="chipRow">
-              {bootstrap.config.site.timeframes.map((item) => (
-                <button
-                  key={item}
-                  className={timeframe === item ? "chip active" : "chip ghost"}
-                  type="button"
-                  onClick={() => updateParams(params, setParams, { timeframe: item })}
-                >
-                  {item}
-                </button>
-              ))}
-              <button className="iconChip" type="button" aria-label="Table view"><Icon icon="table" /></button>
-            </div>
-          </div>
+        return (
+          <div className={`darkPage collectionsMarketplacePage ${railCollapsed ? "collectionsMarketplacePageRailCollapsed" : ""}`}>
+            <div className="collectionsMarketplaceLayout">
+              {!railCollapsed ? (
+                <aside className="pagePanel collectionsFilterRail">
+                  <div className="collectionsRailHeader">
+                    <strong>Filter By</strong>
+                    <div className="segmentedSwitch collectionsRailSegment">
+                      <button className="segment active" type="button">Collections</button>
+                      <button className="segment" type="button" onClick={() => navigate("/tokens")}>Tokens</button>
+                    </div>
+                  </div>
 
-          <section className="tableSurface">
-            <div className="collectionTableHeader">
-              <span />
-              <span>Collection</span>
-              <span>Floor Price</span>
-              <span>1D Change</span>
-              <span>Top Offer</span>
-              <span>1D Vol</span>
-              <span>1D Sales</span>
-              <span>Owners</span>
-            </div>
-            {data.collections.length === 0 ? (
-              <div className="tableEmptyState">
-                <p>No collections found.</p>
-              </div>
-            ) : null}
-            {data.collections.map((collection) => (
-              <NavLink to={`/collection/${collection.slug}`} className="collectionTableRow" key={collection.slug}>
-                <span className="starSlot"><Icon icon="star" /></span>
-                <div className="collectionIdentity">
-                  <img src={assetUrl(collection.avatarUrl)} alt={collection.name} />
-                  <div>
-                    <strong>{collection.name}</strong>
-                    {collection.badgeText ? <span className="miniBadge">{collection.badgeText}</span> : null}
+                  <div className="collectionsFilterSection">
+                    <div className="profileFilterHeadingRow">
+                      <strong>Category</strong>
+                      <Icon icon="chevron-down" className="profileFilterChevron" />
+                    </div>
+                    <div className="collectionsFilterChipGrid">
+                      <button
+                        className={category === "all" ? "profileFilterChip active" : "profileFilterChip"}
+                        type="button"
+                        onClick={() => updateParams(params, setParams, { category: "all" })}
+                      >
+                        All
+                      </button>
+                      {categoryOptions.map((option) => (
+                        <button
+                          key={option}
+                          className={category === option ? "profileFilterChip active" : "profileFilterChip"}
+                          type="button"
+                          onClick={() => updateParams(params, setParams, { category: option })}
+                        >
+                          {formatFilterLabel(option)}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="collectionsFilterSection">
+                    <div className="profileFilterHeadingRow">
+                      <strong>Status</strong>
+                      <Icon icon="chevron-down" className="profileFilterChevron" />
+                    </div>
+                    <div className="collectionsFilterChipGrid">
+                      {[
+                        ["all", "All"],
+                        ["verified", "Verified"],
+                        ["listed", "Listed"],
+                        ["no-listings", "No listings"]
+                      ].map(([value, label]) => (
+                        <button
+                          key={value}
+                          className={status === value ? "profileFilterChip active" : "profileFilterChip"}
+                          type="button"
+                          onClick={() => updateParams(params, setParams, { status: value })}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="collectionsFilterSection">
+                    <div className="profileFilterHeadingRow">
+                      <strong>Chains</strong>
+                      <Icon icon="chevron-down" className="profileFilterChevron" />
+                    </div>
+                    <label className="profileFilterSearch">
+                      <Icon icon="search" />
+                      <input
+                        type="search"
+                        value={chainSearch}
+                        placeholder="Search for chains"
+                        onChange={(event) => updateParams(params, setParams, { chainSearch: event.target.value })}
+                      />
+                    </label>
+                    <div className="collectionsFilterChipGrid">
+                      <button
+                        className={chain === "all" ? "profileFilterChip active" : "profileFilterChip"}
+                        type="button"
+                        onClick={() => updateParams(params, setParams, { chain: "all" })}
+                      >
+                        All
+                      </button>
+                      {visibleChainOptions.map((option) => {
+                        const value = normalizeFilterValue(option);
+                        return (
+                          <button
+                            key={option}
+                            className={chain === value ? "profileFilterChip active" : "profileFilterChip"}
+                            type="button"
+                            onClick={() => updateParams(params, setParams, { chain: value })}
+                          >
+                            {option}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  <div className="collectionsFilterSection">
+                    <div className="profileFilterHeadingRow">
+                      <strong>Collections</strong>
+                      <Icon icon="chevron-down" className="profileFilterChevron" />
+                    </div>
+                    <label className="profileFilterSearch">
+                      <Icon icon="search" />
+                      <input
+                        type="search"
+                        value={collectionSearch}
+                        placeholder="Search for collections"
+                        onChange={(event) => updateParams(params, setParams, { collectionSearch: event.target.value })}
+                      />
+                    </label>
+                    <div className="collectionsSelectionList">
+                      {visibleCollections.slice(0, 8).map((collection) => (
+                        <button
+                          key={collection.slug}
+                          className={selectedCollection === collection.slug ? "collectionsSelectionItem active" : "collectionsSelectionItem"}
+                          type="button"
+                          onClick={() =>
+                            updateParams(params, setParams, {
+                              collection: selectedCollection === collection.slug ? "all" : collection.slug
+                            })
+                          }
+                        >
+                          <img src={assetUrl(collection.avatarUrl)} alt={collection.name} />
+                          <span>{collection.name}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </aside>
+              ) : null}
+
+              <section className="pagePanel collectionsMarketSurface">
+                <div className="collectionsMarketTopbar">
+                  <div className="chipRow">
+                    <button
+                      className="iconChip"
+                      type="button"
+                      aria-label={railCollapsed ? "Open filters" : "Collapse filters"}
+                      onClick={() => updateParams(params, setParams, { rail: railCollapsed ? "open" : "collapsed" })}
+                    >
+                      <Icon icon={railCollapsed ? "chevron-right" : "collapse-left"} />
+                    </button>
+                    {["top", "trending", "watchlist"].map((item) => (
+                      <button
+                        key={item}
+                        className={view === item ? "chip active" : "chip"}
+                        type="button"
+                        onClick={() => updateParams(params, setParams, { view: item })}
+                      >
+                        <Icon
+                          icon={
+                            item === "top" ? "globe" : item === "trending" ? "chart" : "star"
+                          }
+                          className="microIcon"
+                        />
+                        {item.charAt(0).toUpperCase() + item.slice(1)}
+                      </button>
+                    ))}
+                  </div>
+
+                  <div className="collectionsMarketActions">
+                    <div className="chipRow">
+                      {bootstrap.config.site.timeframes.map((item) => (
+                        <button
+                          key={item}
+                          className={timeframe === item ? "chip active" : "chip ghost"}
+                          type="button"
+                          onClick={() => updateParams(params, setParams, { timeframe: item })}
+                        >
+                          {item}
+                        </button>
+                      ))}
+                    </div>
+                    <div className="chipRow">
+                      <button
+                        className={density === "dense" ? "iconChip active" : "iconChip"}
+                        type="button"
+                        aria-label="Dense table"
+                        onClick={() => updateParams(params, setParams, { density: "dense" })}
+                      >
+                        <Icon icon="table" />
+                      </button>
+                      <button
+                        className={density === "comfortable" ? "iconChip active" : "iconChip"}
+                        type="button"
+                        aria-label="Comfortable table"
+                        onClick={() => updateParams(params, setParams, { density: "comfortable" })}
+                      >
+                        <Icon icon="list" />
+                      </button>
+                    </div>
                   </div>
                 </div>
-                <span>{collection.tableMetrics.floor}</span>
-                <span className={collection.tableMetrics.change.startsWith("-") ? "negative" : "positive"}>
-                  {collection.tableMetrics.change}
-                </span>
-                <span>{collection.tableMetrics.topOffer}</span>
-                <span>{collection.tableMetrics.volume}</span>
-                <span>{collection.tableMetrics.sales}</span>
-                <span>{collection.tableMetrics.owners}</span>
-              </NavLink>
-            ))}
-          </section>
-        </div>
-      )}
+
+                <div className={`collectionsMarketTable ${density === "comfortable" ? "comfortable" : "dense"}`}>
+                  <div className="collectionsMarketHeader">
+                    <span />
+                    <span>Collection</span>
+                    <button type="button" className={sort === "floor" ? "collectionsHeaderButton active" : "collectionsHeaderButton"} onClick={() => updateParams(params, setParams, { sort: "floor" })}>Floor Price</button>
+                    <button type="button" className={sort === "change" ? "collectionsHeaderButton active" : "collectionsHeaderButton"} onClick={() => updateParams(params, setParams, { sort: "change" })}>1D Change</button>
+                    <button type="button" className={sort === "offer" ? "collectionsHeaderButton active" : "collectionsHeaderButton"} onClick={() => updateParams(params, setParams, { sort: "offer" })}>Top Offer</button>
+                    <button type="button" className={sort === "volume" ? "collectionsHeaderButton active" : "collectionsHeaderButton"} onClick={() => updateParams(params, setParams, { sort: "volume" })}>1D Vol</button>
+                    <button type="button" className={sort === "sales" ? "collectionsHeaderButton active" : "collectionsHeaderButton"} onClick={() => updateParams(params, setParams, { sort: "sales" })}>1D Sales</button>
+                    <button type="button" className={sort === "owners" ? "collectionsHeaderButton active" : "collectionsHeaderButton"} onClick={() => updateParams(params, setParams, { sort: "owners" })}>Owners</button>
+                  </div>
+
+                  {filteredCollections.length === 0 ? (
+                    <AmbientEmptyState
+                      className="collectionsMarketEmptyState"
+                      compact
+                      variant="table"
+                      eyebrow="Collections"
+                      title="No collections found"
+                      copy="Try a different mix of categories, chain filters, or search terms."
+                    />
+                  ) : null}
+
+                  {filteredCollections.map((collection) => {
+                    const changeValue = parseMetricNumber(collection.tableMetrics.change);
+                    const changeClass =
+                      changeValue == null ? "" : changeValue > 0 ? "positive" : changeValue < 0 ? "negative" : "";
+
+                    return (
+                      <NavLink
+                        to={`/collection/${collection.slug}`}
+                        className="collectionsMarketRow"
+                        key={collection.slug}
+                      >
+                        <span className="collectionsStarSlot"><Icon icon="star" /></span>
+                        <div className="collectionsMarketIdentity">
+                          <img src={assetUrl(collection.avatarUrl)} alt={collection.name} />
+                          <div className="collectionsMarketIdentityText">
+                            <div className="collectionsMarketTitleRow">
+                              <strong>{collection.name}</strong>
+                              {collection.verified ? <OpenSeaBadge className="verifiedBadge small" /> : null}
+                            </div>
+                            <p>
+                              {collection.creatorName || shortenAddress(collection.creatorSlug || collection.contractAddress)}
+                              <span>
+                                {" "}
+                                • {collection.chain} • {compact(collection.owners)} owners
+                              </span>
+                            </p>
+                          </div>
+                        </div>
+                        <span className="collectionsMetricValue">{collection.tableMetrics.floor}</span>
+                        <span className={`collectionsMetricValue ${changeClass}`}>{collection.tableMetrics.change}</span>
+                        <span className="collectionsMetricValue">{collection.tableMetrics.topOffer}</span>
+                        <span className="collectionsMetricValue">{collection.tableMetrics.volume}</span>
+                        <span className="collectionsMetricValue">{collection.tableMetrics.sales}</span>
+                        <span className="collectionsMetricValue">{collection.tableMetrics.owners}</span>
+                      </NavLink>
+                    );
+                  })}
+                </div>
+              </section>
+            </div>
+          </div>
+        );
+      }}
     </DataState>
   );
 }
@@ -1657,7 +2659,13 @@ function TokensPage() {
           <span>Mode</span>
         </div>
         {tokens.length === 0 ? (
-          <p className="panelBody">No tokens match this search.</p>
+          <AmbientEmptyState
+            compact
+            variant="rows"
+            eyebrow="Tokens"
+            title="No tokens match this search"
+            copy="Try a different query or clear the filter to see tracked Reef assets."
+          />
         ) : null}
         {tokens.map((token) => (
           <div className="tokenTableRow" key={token.slug}>
@@ -1829,9 +2837,24 @@ function DropsPage() {
                 </button>
               ) : null}
             </div>
+            {data.drops.length > 0 ? <DropsHeroCarousel drops={data.drops} /> : null}
             <div className="dropGrid">
               {data.drops.length === 0 ? (
-                <p className="panelBody">No drops to display.</p>
+                <AmbientEmptyState
+                  variant="cards"
+                  eyebrow="Drops"
+                  title="No drops to display"
+                  copy="Live and upcoming Reef drops will appear here once creators or admins schedule them."
+                  actions={
+                    isAdmin ? (
+                      <div className="panelActionRow">
+                        <button className="actionButton secondary" type="button" onClick={() => navigate("/admin")}>
+                          Manage drops
+                        </button>
+                      </div>
+                    ) : null
+                  }
+                />
               ) : null}
               {data.drops.map((drop) => (
                 <DropCard key={drop.slug} drop={drop} />
@@ -2126,12 +3149,18 @@ function AdminPage() {
         {dropsState.loading ? <p className="panelBody">Loading drops...</p> : null}
         {dropsState.error ? <p className="panelBody">{dropsState.error}</p> : null}
         {!dropsState.loading && !dropsState.error && dropsState.drops.length === 0 ? (
-          <p className="panelBody">No drops created yet.</p>
+          <AmbientEmptyState
+            compact
+            variant="rows"
+            eyebrow="Admin"
+            title="No drops created yet"
+            copy="Add the first curated drop and it will appear on the public Drops route automatically."
+          />
         ) : null}
         <div className="adminDropList">
           {dropsState.drops.map((drop) => (
             <article className="adminDropRow" key={drop.slug}>
-              <img src={assetUrl(drop.coverUrl)} alt={drop.name} />
+              <DropCoverImage drop={drop} />
               <div className="adminDropBody">
                 <div className="adminDropHeader">
                   <strong>{drop.name}</strong>
@@ -2205,7 +3234,12 @@ function ActivityPage() {
             </div>
             <div className="activityTable">
               {data.activities.length === 0 ? (
-                <p className="panelBody">No activity yet.</p>
+                <AmbientEmptyState
+                  variant="rows"
+                  eyebrow="Activity"
+                  title="No activity yet"
+                  copy="Once mints, listings, transfers, and sales happen on Reef, they will stream into this feed."
+                />
               ) : null}
               {data.activities.map((entry) => (
                 <div className="activityTableRow" key={entry.id}>
@@ -2577,41 +3611,27 @@ function buildProfileEmptyArtwork(variant: "items" | "created") {
   const art =
     variant === "created"
       ? `
-        <rect x="56" y="82" width="148" height="180" rx="24" fill="rgba(39,46,56,0.9)" stroke="rgba(255,255,255,0.06)" />
-        <rect x="216" y="52" width="176" height="210" rx="28" fill="rgba(23,27,33,0.98)" stroke="rgba(255,255,255,0.08)" />
-        <rect x="252" y="88" width="104" height="104" rx="24" fill="url(#cardGlow)" />
-        <path d="M286 142h36" stroke="#f8fafc" stroke-width="10" stroke-linecap="round" />
-        <path d="M304 124v36" stroke="#f8fafc" stroke-width="10" stroke-linecap="round" />
-        <rect x="100" y="110" width="62" height="62" rx="16" fill="rgba(74,133,255,0.2)" />
-        <rect x="92" y="294" width="268" height="16" rx="8" fill="rgba(255,255,255,0.08)" />
-        <rect x="148" y="322" width="156" height="12" rx="6" fill="rgba(255,255,255,0.05)" />
+        <rect x="82" y="86" width="128" height="164" rx="18" fill="rgba(33,33,35,0.96)" stroke="rgba(255,255,255,0.08)" />
+        <rect x="214" y="56" width="152" height="194" rx="18" fill="rgba(20,20,21,0.98)" stroke="rgba(255,255,255,0.08)" />
+        <rect x="250" y="88" width="80" height="96" rx="12" fill="rgba(255,255,255,0.08)" />
+        <path d="M276 136h28" stroke="#f3f4f6" stroke-width="8" stroke-linecap="round" />
+        <path d="M290 122v28" stroke="#f3f4f6" stroke-width="8" stroke-linecap="round" />
+        <rect x="108" y="292" width="236" height="12" rx="4" fill="rgba(255,255,255,0.08)" />
+        <rect x="154" y="318" width="144" height="10" rx="4" fill="rgba(255,255,255,0.05)" />
       `
       : `
-        <rect x="74" y="86" width="136" height="170" rx="24" fill="rgba(39,46,56,0.82)" stroke="rgba(255,255,255,0.06)" />
-        <rect x="210" y="62" width="172" height="206" rx="30" fill="rgba(22,26,32,0.98)" stroke="rgba(255,255,255,0.08)" />
-        <rect x="260" y="108" width="72" height="72" rx="20" fill="rgba(73,149,255,0.18)" />
-        <circle cx="352" cy="102" r="14" fill="#86aefc" />
-        <circle cx="330" cy="126" r="58" fill="url(#orbGlow)" />
-        <rect x="238" y="208" width="116" height="14" rx="7" fill="rgba(255,255,255,0.1)" />
-        <rect x="258" y="234" width="76" height="10" rx="5" fill="rgba(255,255,255,0.06)" />
-        <rect x="104" y="116" width="78" height="78" rx="22" fill="rgba(71,178,255,0.14)" />
-        <path d="M86 302h284" stroke="rgba(255,255,255,0.08)" stroke-width="14" stroke-linecap="round" />
+        <rect x="82" y="76" width="128" height="172" rx="18" fill="rgba(26,26,28,0.96)" stroke="rgba(255,255,255,0.08)" />
+        <rect x="226" y="54" width="126" height="176" rx="14" fill="#2b211f" />
+        <rect x="246" y="74" width="86" height="118" rx="12" fill="#996960" />
+        <rect x="258" y="88" width="62" height="74" rx="8" fill="#7a544d" />
+        <circle cx="292" cy="116" r="8" fill="#1f130f" />
+        <path d="M286 118h12M292 112v12" stroke="#1f130f" stroke-width="3" stroke-linecap="round" />
+        <rect x="252" y="202" width="74" height="8" rx="4" fill="rgba(255,255,255,0.22)" />
+        <path d="M106 292h236" stroke="rgba(255,255,255,0.08)" stroke-width="12" stroke-linecap="round" />
       `;
 
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="448" height="360" viewBox="0 0 448 360" fill="none">
-    <defs>
-      <radialGradient id="orbGlow" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(330 126) rotate(90) scale(72)">
-        <stop offset="0" stop-color="#9CD8FF"/>
-        <stop offset="0.42" stop-color="#67A6FF"/>
-        <stop offset="1" stop-color="#2A3857" stop-opacity="0"/>
-      </radialGradient>
-      <linearGradient id="cardGlow" x1="252" y1="88" x2="356" y2="192" gradientUnits="userSpaceOnUse">
-        <stop stop-color="#6D5EF6"/>
-        <stop offset="1" stop-color="#6DD1FF"/>
-      </linearGradient>
-    </defs>
-    <circle cx="90" cy="78" r="38" fill="rgba(52,124,255,0.08)" />
-    <circle cx="364" cy="274" r="52" fill="rgba(102,91,255,0.08)" />
+    <rect width="448" height="360" fill="#141415" />
     ${art}
   </svg>`;
   return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
@@ -2624,7 +3644,10 @@ function CreatePage() {
     bootstrap,
     connectWallet,
     getWalletSession,
+    hideActionModal,
     setStatus,
+    showActionModal,
+    updateActionModal,
     refreshMarket,
     refreshNonce
   } = useMarketplace();
@@ -2633,6 +3656,10 @@ function CreatePage() {
   const queueInputRef = useRef<HTMLInputElement | null>(null);
   const nftImageInputRef = useRef<HTMLInputElement | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [nftDragActive, setNftDragActive] = useState(false);
+  const [previewImageFailed, setPreviewImageFailed] = useState(false);
+  const [showRawTraitsEditor, setShowRawTraitsEditor] = useState(false);
+  const [traitsJsonError, setTraitsJsonError] = useState("");
   const [metadataUri, setMetadataUri] = useState("");
   const [metadataGatewayUrl, setMetadataGatewayUrl] = useState("");
   const [mintQueue, setMintQueue] = useState<MintQueueDraft[]>([]);
@@ -2653,7 +3680,11 @@ function CreatePage() {
     editionQuantity: "1",
     recipient: "",
     imageUrl: "",
-    traitsJson: '[\n  {\n    "trait_type": "Edition",\n    "value": "Creator"\n  }\n]'
+    traitsJson: DEFAULT_TRAITS_JSON
+  });
+  const [traitRows, setTraitRows] = useState<TraitEditorRow[]>(() => {
+    const parsed = parseTraitRowsInput(DEFAULT_TRAITS_JSON);
+    return parsed.length ? parsed : [createTraitEditorRow()];
   });
   const requestedCollectionSlug = params.get("collection")?.trim().toLowerCase() ?? "";
   const batchMode = params.get("batch") === "1";
@@ -2661,6 +3692,140 @@ function CreatePage() {
 
   function createDraftId() {
     return globalThis.crypto?.randomUUID?.() ?? randomSaltHex();
+  }
+
+  function createTraitEditorRow(overrides?: Partial<Omit<TraitEditorRow, "id">>) {
+    return {
+      id: createDraftId(),
+      trait_type: "",
+      value: "",
+      ...overrides
+    };
+  }
+
+  function markCollectionContractUnavailable(slug: string, reason: string) {
+    setCreatorCollectionsState((current) => ({
+      ...current,
+      collections: current.collections.map((collection) =>
+        collection.slug === slug
+          ? {
+              ...collection,
+              contractReady: false,
+              contractReason: reason
+            }
+        : collection
+      )
+    }));
+  }
+
+  function syncCreatorCollection(collection: CreatorCollectionDraft) {
+    setCreatorCollectionsState((current) => {
+      const existing = current.collections.some((entry) => entry.slug === collection.slug);
+      return {
+        ...current,
+        collections: existing
+          ? current.collections.map((entry) =>
+              entry.slug === collection.slug ? collection : entry
+            )
+          : [...current.collections, collection]
+      };
+    });
+  }
+
+  function removeCreatorCollection(slug: string) {
+    setCreatorCollectionsState((current) => ({
+      ...current,
+      collections: current.collections.filter((collection) => collection.slug !== slug)
+    }));
+    setSelectedCollectionSlug((current) => (current === slug ? "" : current));
+  }
+
+  async function resolveLiveCollectionForMint(collection: CreatorCollectionDraft) {
+    try {
+      const liveCollection = await fetchJson<CreatorCollectionDraft>(
+        `/creator/collections/${encodeURIComponent(collection.slug)}`,
+        undefined,
+        mutationRequestTimeoutMs
+      );
+      syncCreatorCollection(liveCollection);
+      return liveCollection;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (message.includes("/creator/collections/") && message.includes("(404)")) {
+        removeCreatorCollection(collection.slug);
+        throw new Error(
+          "Selected collection is no longer available in this fresh Reef workspace. Refresh the page and create or redeploy a live collection before minting."
+        );
+      }
+      throw error;
+    }
+  }
+
+  async function readLiveCollectionCode(session: WalletSession, contractAddress: string) {
+    const normalizedAddress = contractAddress.trim();
+    if (!normalizedAddress) {
+      return "0x";
+    }
+
+    const walletCode = await session.provider.getCode(normalizedAddress).catch(() => "");
+    if (walletCode && walletCode !== "0x") {
+      return walletCode;
+    }
+
+    if (!bootstrap.config.network.rpcUrl) {
+      return walletCode || "0x";
+    }
+
+    const rpcProvider = new JsonRpcProvider(
+      bootstrap.config.network.rpcUrl,
+      Number(bootstrap.config.network.chainId)
+    );
+    return (await rpcProvider.getCode(normalizedAddress).catch(() => walletCode || "0x")) || "0x";
+  }
+
+  function parseTraitRowsInput(traitsJson: string) {
+    const trimmed = traitsJson.trim();
+    if (!trimmed) {
+      return [];
+    }
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (!Array.isArray(parsed)) {
+        return [];
+      }
+      return parsed.map((entry) =>
+        createTraitEditorRow({
+          trait_type: String((entry as { trait_type?: unknown }).trait_type ?? ""),
+          value: String((entry as { value?: unknown }).value ?? "")
+        })
+      );
+    } catch {
+      return [];
+    }
+  }
+
+  function formatTraitRowsJson(rows: TraitEditorRow[]) {
+    return JSON.stringify(
+      rows
+        .map((row) => ({
+          trait_type: row.trait_type.trim(),
+          value: row.value.trim()
+        }))
+        .filter((row) => row.trait_type || row.value),
+      null,
+      2
+    );
+  }
+
+  function sameTraitRowsContent(a: TraitEditorRow[], b: Array<Pick<TraitEditorRow, "trait_type" | "value">>) {
+    if (a.length !== b.length) {
+      return false;
+    }
+    return a.every(
+      (row, index) =>
+        row.trait_type === b[index]?.trait_type &&
+        row.value === b[index]?.value
+    );
   }
 
   function createEmptyDraftState(overrides?: Partial<typeof form>) {
@@ -2672,7 +3837,7 @@ function CreatePage() {
       editionQuantity: "1",
       recipient: account || "",
       imageUrl: "",
-      traitsJson: '[\n  {\n    "trait_type": "Edition",\n    "value": "Creator"\n  }\n]',
+      traitsJson: DEFAULT_TRAITS_JSON,
       ...overrides
     };
   }
@@ -2689,6 +3854,36 @@ function CreatePage() {
       }));
     }
   }, [account, form.recipient]);
+
+  useEffect(() => {
+    const trimmed = form.traitsJson.trim();
+    if (!trimmed) {
+      if (!sameTraitRowsContent(traitRows, [{ trait_type: "", value: "" }])) {
+        setTraitRows([createTraitEditorRow()]);
+      }
+      setTraitsJsonError("");
+      return;
+    }
+
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (!Array.isArray(parsed)) {
+        setTraitsJsonError("Traits JSON must be an array of trait objects.");
+        return;
+      }
+      const nextRows = parsed.map((entry) => ({
+          trait_type: String((entry as { trait_type?: unknown }).trait_type ?? ""),
+          value: String((entry as { value?: unknown }).value ?? "")
+        }));
+      const normalizedRows = nextRows.length ? nextRows : [{ trait_type: "", value: "" }];
+      if (!sameTraitRowsContent(traitRows, normalizedRows)) {
+        setTraitRows(normalizedRows.map((row) => createTraitEditorRow(row)));
+      }
+      setTraitsJsonError("");
+    } catch {
+      setTraitsJsonError("Traits JSON is invalid. Fix the JSON or switch back to the visual builder.");
+    }
+  }, [form.traitsJson, traitRows, traitsJsonError]);
 
   useEffect(() => {
     if (!account) {
@@ -2760,6 +3955,9 @@ function CreatePage() {
 
     const firstReadyCollection =
       creatorCollectionsState.collections.find(
+        (collection) => isCreatorCollectionMintable(collection)
+      ) ??
+      creatorCollectionsState.collections.find(
         (collection) =>
           collection.status.toLowerCase() === "ready" && Boolean(collection.contractAddress)
       ) ?? creatorCollectionsState.collections[0];
@@ -2786,11 +3984,18 @@ function CreatePage() {
     form.name || "Reef NFT",
     form.subtitle || "Collector Edition"
   );
+  const selectedCollectionArtwork = creatorCollectionArtworkSource(selectedCollection);
   const previewImage =
     form.imageUrl.trim() ||
-    selectedCollection?.avatarUrl?.trim() ||
-    selectedCollection?.bannerUrl?.trim() ||
+    selectedCollectionArtwork ||
     starterArtworks[0].imageUrl;
+  const previewTraitChips = traitRows
+    .map((row) => ({
+      trait_type: row.trait_type.trim(),
+      value: row.value.trim()
+    }))
+    .filter((row) => row.trait_type || row.value)
+    .slice(0, 4);
   const creatorCapabilities = [
     bootstrap.config.deployment.creator.erc721,
     bootstrap.config.deployment.creator.erc1155
@@ -2804,9 +4009,7 @@ function CreatePage() {
       ? "Reef fallback creator path active"
       : "Waiting on Reef deploy";
   const creatorCollectionReady = Boolean(
-    selectedCollection &&
-    selectedCollection.status.toLowerCase() === "ready" &&
-    selectedCollection.contractAddress
+    selectedCollection && isCreatorCollectionMintable(selectedCollection)
   );
 
   useEffect(() => {
@@ -2815,6 +4018,10 @@ function CreatePage() {
     }
     setStatus(`Collection ${selectedCollection.name} is ready. Add multiple NFTs below and mint them into this collection.`);
   }, [freshCollection, selectedCollection, setStatus]);
+
+  useEffect(() => {
+    setPreviewImageFailed(false);
+  }, [previewImage]);
 
   const mintBlocker = (() => {
     if (!account) {
@@ -2835,8 +4042,9 @@ function CreatePage() {
     if (!selectedCollection) {
       return "Choose a creator collection before minting.";
     }
-    if (!selectedCollection.contractAddress || selectedCollection.status.toLowerCase() !== "ready") {
-      return `Selected collection is ${selectedCollection.status}. Deploy the collection contract before minting.`;
+    const selectedCollectionIssue = creatorCollectionMintBlockerMessage(selectedCollection);
+    if (selectedCollectionIssue) {
+      return selectedCollectionIssue;
     }
     return "";
   })();
@@ -2846,10 +4054,8 @@ function CreatePage() {
     if (source) {
       return source;
     }
-    const inheritedCollectionArtwork =
-      selectedCollection?.avatarUrl?.trim() || selectedCollection?.bannerUrl?.trim();
-    if (inheritedCollectionArtwork) {
-      return inheritedCollectionArtwork;
+    if (selectedCollectionArtwork) {
+      return selectedCollectionArtwork;
     }
     return buildStarterArtworkSet(
       draft.name || "Reef NFT",
@@ -2862,10 +4068,8 @@ function CreatePage() {
     if (explicitSource) {
       return explicitSource;
     }
-    const inheritedCollectionArtwork =
-      selectedCollection?.avatarUrl?.trim() || selectedCollection?.bannerUrl?.trim();
-    if (inheritedCollectionArtwork) {
-      return inheritedCollectionArtwork;
+    if (selectedCollectionArtwork) {
+      return selectedCollectionArtwork;
     }
     return previewForDraft(draft);
   }
@@ -2885,6 +4089,30 @@ function CreatePage() {
 
   function parseTraits() {
     return parseTraitsJson(form.traitsJson);
+  }
+
+  function applyTraitRows(nextRows: TraitEditorRow[]) {
+    const normalizedRows = nextRows.length ? nextRows : [createTraitEditorRow()];
+    setTraitRows(normalizedRows);
+    setTraitsJsonError("");
+    setForm((current) => ({
+      ...current,
+      traitsJson: formatTraitRowsJson(normalizedRows)
+    }));
+  }
+
+  function addTraitRow() {
+    applyTraitRows([...traitRows, createTraitEditorRow()]);
+  }
+
+  function updateTraitRow(id: string, patch: Partial<Omit<TraitEditorRow, "id">>) {
+    applyTraitRows(
+      traitRows.map((row) => (row.id === id ? { ...row, ...patch } : row))
+    );
+  }
+
+  function removeTraitRow(id: string) {
+    applyTraitRows(traitRows.filter((row) => row.id !== id));
   }
 
   function parseTraitsJson(traitsJson: string) {
@@ -3034,18 +4262,33 @@ function CreatePage() {
     if (!selectedCollection) {
       throw new Error("Create a creator collection before minting.");
     }
-    if (!selectedCollection.contractAddress || selectedCollection.status.toLowerCase() !== "ready") {
-      throw new Error(mintBlocker || "Selected creator collection is not deployed on Reef yet.");
+    const selectedCollectionIssue = creatorCollectionMintBlockerMessage(selectedCollection);
+    if (selectedCollectionIssue) {
+      throw new Error(selectedCollectionIssue);
+    }
+
+    const liveCollection = await resolveLiveCollectionForMint(selectedCollection);
+    const liveCollectionIssue = creatorCollectionMintBlockerMessage(liveCollection);
+    if (liveCollectionIssue) {
+      throw new Error(liveCollectionIssue);
+    }
+
+    const deployedCode = await readLiveCollectionCode(session, liveCollection.contractAddress);
+    if (!deployedCode || deployedCode === "0x") {
+      const reason =
+        liveCollection.contractReason ||
+        "Selected collection contract is unavailable on Reef. Redeploy the collection before minting NFTs.";
+      markCollectionContractUnavailable(liveCollection.slug, reason);
+      throw new Error(reason);
     }
 
     const resolvedMetadata = pinnedUri ?? (await pinMetadataForDraft(draft)).uri;
     const parsedTraits = parseTraitsJson(draft.traitsJson);
-    const isEditionCollection = selectedCollection.standard.toUpperCase() === "ERC1155";
+    const isEditionCollection = liveCollection.standard.toUpperCase() === "ERC1155";
     const usesOfficialCreatorMint =
-      !isEditionCollection && selectedCollection.deploymentMode.toLowerCase() === "official";
-    const txOverrides = getReefTransactionOverrides(bootstrap.config, "collection");
+      !isEditionCollection && liveCollection.deploymentMode.toLowerCase() === "official";
     const contract = new Contract(
-      selectedCollection.contractAddress,
+      liveCollection.contractAddress,
       isEditionCollection
         ? editionCollectionAbi
         : usesOfficialCreatorMint
@@ -3053,7 +4296,20 @@ function CreatePage() {
           : fallbackCreatorCollectionAbi,
       session.signer
     );
-    const contractOwner = String(await contract.owner());
+    let contractOwner = "";
+    try {
+      contractOwner = String(await contract.owner());
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "";
+      if (message.includes("could not decode result data") || message.includes("BAD_DATA")) {
+        const reason =
+          liveCollection.contractReason ||
+          "Selected collection did not respond like a Reef creator contract. Redeploy the collection before minting NFTs.";
+        markCollectionContractUnavailable(liveCollection.slug, reason);
+        throw new Error(reason);
+      }
+      throw error;
+    }
     if (!sameAddress(contractOwner, session.address)) {
       throw new Error("Connect the collection owner wallet to mint on this contract.");
     }
@@ -3066,16 +4322,33 @@ function CreatePage() {
           ? `Submitting ${draft.name} through the OpenSea SeaDrop collection on Reef...`
           : `Submitting ${draft.name} through the fallback ERC721 creator path on Reef...`
     );
-    const tx = isEditionCollection
-      ? await contract.mintCreator(
-          recipient,
-          BigInt(Math.max(1, Number(draft.editionQuantity || "1"))),
-          resolvedMetadata,
-          txOverrides
+    const txRequest = isEditionCollection
+      ? await buildContractWriteRequest(
+          contract,
+          "mintCreator",
+          [recipient, BigInt(Math.max(1, Number(draft.editionQuantity || "1"))), resolvedMetadata],
+          session,
+          bootstrap.config,
+          "collection"
         )
       : usesOfficialCreatorMint
-        ? await contract.mintCreator(recipient, resolvedMetadata, txOverrides)
-        : await contract.mintTo(recipient, resolvedMetadata, txOverrides);
+        ? await buildContractWriteRequest(
+            contract,
+            "mintCreator",
+            [recipient, resolvedMetadata],
+            session,
+            bootstrap.config,
+            "collection"
+          )
+        : await buildContractWriteRequest(
+            contract,
+            "mintTo",
+            [recipient, resolvedMetadata],
+            session,
+            bootstrap.config,
+            "collection"
+          );
+    const tx = await session.signer.sendTransaction(txRequest);
     const receipt = await tx.wait();
     if (receipt?.status === 0) {
       throw new Error("Mint transaction reverted on Reef.");
@@ -3116,8 +4389,8 @@ function CreatePage() {
         authToken
       ),
       body: JSON.stringify({
-        collectionSlug: selectedCollection.slug,
-        collectionAddress: selectedCollection.contractAddress,
+        collectionSlug: liveCollection.slug,
+        collectionAddress: liveCollection.contractAddress,
         tokenId: mintedTokenId,
         metadataUri: resolvedMetadata,
         imageUrl: persistedImageForDraft(draft),
@@ -3133,15 +4406,23 @@ function CreatePage() {
 
     return {
       tokenId: mintedTokenId,
-      contractAddress: selectedCollection.contractAddress
+      contractAddress: liveCollection.contractAddress
     };
   }
 
   async function mintNft() {
     setSubmitting(true);
     try {
+      showActionModal({
+        title: "Minting NFT",
+        message: "Preparing metadata and waiting for your wallet confirmation.",
+        detail: selectedCollection?.name ? `Collection: ${selectedCollection.name}` : undefined,
+        steps: ["Prepare metadata", "Confirm mint", "Index NFT"],
+        activeStep: 0
+      });
       const session = await getWalletSession();
       if (!session) {
+        hideActionModal();
         return;
       }
 
@@ -3149,14 +4430,37 @@ function CreatePage() {
       const metadata = metadataUri
         ? { uri: metadataUri, gatewayUrl: metadataGatewayUrl }
         : await pinMetadataForDraft(draft);
+      updateActionModal({
+        message: "Metadata is ready. Confirm the mint transaction in your wallet.",
+        activeStep: 1
+      });
       setMetadataUri(metadata.uri);
       setMetadataGatewayUrl(metadata.gatewayUrl);
 
       const result = await mintDraft(draft, session, metadata.uri);
+      updateActionModal({
+        message: "Mint confirmed on Reef. Finalizing the item in your collection.",
+        activeStep: 2
+      });
       setStatus("NFT minted successfully.");
       refreshMarket();
+      updateActionModal({
+        tone: "success",
+        message: `${draft.name || "NFT"} is now live in ${selectedCollection?.name ?? "your collection"}.`,
+        activeStep: 2
+      });
+      await sleepMs(700);
+      hideActionModal();
       navigate(`/item/reef/${result.contractAddress}/${result.tokenId}`);
     } catch (error) {
+      updateActionModal({
+        tone: "error",
+        message: error instanceof Error ? error.message : "Mint failed.",
+        detail: "Your NFT was not minted. You can adjust the form and try again.",
+        activeStep: 1
+      });
+      await sleepMs(1100);
+      hideActionModal();
       setStatus(error instanceof Error ? error.message : "Mint failed.");
     } finally {
       setSubmitting(false);
@@ -3171,12 +4475,24 @@ function CreatePage() {
 
     setSubmitting(true);
     try {
+      showActionModal({
+        title: "Minting queue",
+        message: `Preparing ${mintQueue.length} NFT${mintQueue.length === 1 ? "" : "s"} for ${selectedCollection?.name ?? "your collection"}.`,
+        detail: "You may see one or more wallet confirmations depending on the collection standard.",
+        steps: ["Prepare queue", "Mint on Reef", "Refresh collection"],
+        activeStep: 0
+      });
       const session = await getWalletSession();
       if (!session) {
+        hideActionModal();
         return;
       }
 
       let mintedCount = 0;
+      updateActionModal({
+        activeStep: 1,
+        message: `Minting ${mintQueue.length} NFT${mintQueue.length === 1 ? "" : "s"} on Reef...`
+      });
       for (const draft of mintQueue) {
         if (draft.status === "minted") {
           continue;
@@ -3205,8 +4521,23 @@ function CreatePage() {
       }
 
       refreshMarket();
+      updateActionModal({
+        tone: "success",
+        activeStep: 2,
+        message: `Minted ${mintedCount} NFT${mintedCount === 1 ? "" : "s"} into ${selectedCollection?.name ?? "your collection"}.`
+      });
+      await sleepMs(800);
+      hideActionModal();
       setStatus(`Minted ${mintedCount} NFT${mintedCount === 1 ? "" : "s"} into ${selectedCollection?.name ?? "your collection"}.`);
     } catch (error) {
+      updateActionModal({
+        tone: "error",
+        activeStep: 1,
+        message: error instanceof Error ? error.message : "Batch mint failed.",
+        detail: "Some queue items may still be pending or failed. Review the queue and try again."
+      });
+      await sleepMs(1200);
+      hideActionModal();
       setStatus(error instanceof Error ? error.message : "Batch mint failed.");
     } finally {
       setSubmitting(false);
@@ -3262,6 +4593,7 @@ function CreatePage() {
                             {creatorCollectionsState.collections.map((collection) => (
                               <option key={collection.slug} value={collection.slug}>
                                 {collection.name} · {formatCollectionStatus(collection.status)}
+                                {collection.contractReady === false ? " · Redeploy required" : ""}
                               </option>
                             ))}
                           </select>
@@ -3278,33 +4610,54 @@ function CreatePage() {
                         return (
                           <button
                             key={collection.slug}
-                            className="creatorCollectionOption active"
+                            className="creatorCollectionOption active selected"
                             type="button"
                             onClick={() => setSelectedCollectionSlug(collection.slug)}
                           >
                             <img
                               className="creatorCollectionOptionAvatar"
-                              src={collection.avatarUrl || placeholderAsset(collection.symbol || collection.name)}
+                              src={creatorCollectionArtworkPreview(collection)}
                               alt={collection.name}
+                              onError={(event) =>
+                                applyImageFallback(
+                                  event.currentTarget,
+                                  collection.symbol || collection.name
+                                )
+                              }
                             />
                             <span className="creatorCollectionOptionBody">
                               <strong>{collection.name}</strong>
                               <span>
                                 {formatCollectionStatus(collection.status)}
                                 {collection.contractAddress ? ` • ${shortenAddress(collection.contractAddress)}` : " • No contract"}
+                                {collection.contractReady === false ? " • Unavailable on Reef" : ""}
                               </span>
+                              <span className="creatorCollectionOptionMeta">
+                                <span>{collection.standard}</span>
+                                <span>{collection.chainName}</span>
+                              </span>
+                              {collection.contractReady === false && collection.contractReason ? (
+                                <span>{collection.contractReason}</span>
+                              ) : null}
                             </span>
                           </button>
                         );
                       })}
                     </>
                   ) : (
-                    <div className="creatorCollectionEmpty">
-                      <span>You do not have a creator collection yet.</span>
-                      <button className="chip" type="button" onClick={() => navigate("/create/collection")}>
-                        Create collection
-                      </button>
-                    </div>
+                    <AmbientEmptyState
+                      compact
+                      className="creatorCollectionEmpty"
+                      variant="rows"
+                      eyebrow="Collections"
+                      title="You do not have a creator collection yet"
+                      copy="Create a Reef collection first, then mint multiple NFTs into it from this queue."
+                      actions={
+                        <button className="actionButton secondary" type="button" onClick={() => navigate("/create/collection")}>
+                          Create collection
+                        </button>
+                      }
+                    />
                   )}
                 </div>
               </label>
@@ -3355,10 +4708,14 @@ function CreatePage() {
                   </div>
                 </div>
                 {mintQueue.length === 0 ? (
-                  <div className="batchQueueEmpty">
-                    <strong>No queued NFTs yet.</strong>
-                    <p>Upload multiple files or add the current draft to mint several NFTs into this collection in one pass.</p>
-                  </div>
+                  <AmbientEmptyState
+                    compact
+                    className="batchQueueEmpty"
+                    variant="cards"
+                    eyebrow="Mint queue"
+                    title="No queued NFTs yet"
+                    copy="Upload multiple files or add the current draft to mint several NFTs into this collection in one pass."
+                  />
                 ) : (
                   <div className="batchQueueList">
                     {mintQueue.map((draft, index) => (
@@ -3366,7 +4723,12 @@ function CreatePage() {
                         key={draft.id}
                         className={`batchQueueItem batchQueueItem--${draft.status}`}
                       >
-                        <img src={previewForDraft(draft)} alt={draft.name} className="batchQueueThumb" />
+                        <img
+                          src={assetUrl(previewForDraft(draft))}
+                          alt={draft.name}
+                          className="batchQueueThumb"
+                          onError={(event) => applyImageFallback(event.currentTarget, draft.name || "Reef")}
+                        />
                         <div className="batchQueueBody">
                           <input
                             className="textInput batchQueueNameInput"
@@ -3448,21 +4810,67 @@ function CreatePage() {
               </label>
               <label className="fieldGroup fullSpan">
                 <span>Image URL or data URI</span>
-                <input
-                  ref={nftImageInputRef}
-                  type="file"
-                  accept="image/*"
-                  hidden
-                  onChange={(event) => {
-                    const file = event.target.files?.[0];
+                <label
+                  className={`nftUploadFrame${nftDragActive ? " dragging" : ""}`}
+                  onDragEnter={(event) => {
+                    event.preventDefault();
+                    setNftDragActive(true);
+                  }}
+                  onDragOver={(event) => {
+                    event.preventDefault();
+                    setNftDragActive(true);
+                  }}
+                  onDragLeave={(event) => {
+                    event.preventDefault();
+                    setNftDragActive(false);
+                  }}
+                  onDrop={(event) => {
+                    event.preventDefault();
+                    setNftDragActive(false);
+                    const file = event.dataTransfer.files?.[0];
                     if (file) {
                       void readNftImageFile(file).catch((error) => {
                         setStatus(error instanceof Error ? error.message : "Failed to load NFT image.");
                       });
                     }
-                    event.currentTarget.value = "";
                   }}
-                />
+                >
+                  <input
+                    ref={nftImageInputRef}
+                    type="file"
+                    accept="image/*"
+                    hidden
+                    onChange={(event) => {
+                      const file = event.target.files?.[0];
+                      if (file) {
+                        void readNftImageFile(file).catch((error) => {
+                          setStatus(error instanceof Error ? error.message : "Failed to load NFT image.");
+                        });
+                      }
+                      event.currentTarget.value = "";
+                    }}
+                  />
+                  {form.imageUrl.trim() ? (
+                    <img
+                      className="nftUploadPreview"
+                      src={assetUrl(form.imageUrl.trim())}
+                      alt={form.name || "NFT upload preview"}
+                      onError={(event) => applyImageFallback(event.currentTarget, form.name || "Reef")}
+                    />
+                  ) : (
+                    <div className="nftUploadEmpty">
+                      <div className="nftUploadGlyph">
+                        <svg viewBox="0 0 24 24" aria-hidden="true">
+                          <path d="M12 16V6" />
+                          <path d="m8.5 9.5 3.5-3.5 3.5 3.5" />
+                          <path d="M6 18h12" />
+                        </svg>
+                      </div>
+                      <strong>Upload NFT image</strong>
+                      <span>Click to upload or drag and drop. Leave it blank if you want to inherit the collection artwork.</span>
+                    </div>
+                  )}
+                </label>
                 <input
                   className="textInput"
                   value={form.imageUrl}
@@ -3470,9 +4878,6 @@ function CreatePage() {
                   placeholder="Leave blank to inherit the collection artwork automatically"
                 />
                 <div className="adminToolbar">
-                  <button className="chip" type="button" onClick={() => nftImageInputRef.current?.click()}>
-                    Upload NFT image
-                  </button>
                   {form.imageUrl.trim() ? (
                     <button
                       className="chip"
@@ -3515,14 +4920,24 @@ function CreatePage() {
               />
             </label>
 
-            <label className="fieldGroup">
-              <span>Traits JSON</span>
-              <textarea
-                className="textArea codeArea"
-                value={form.traitsJson}
-                onChange={(event) => setForm((current) => ({ ...current, traitsJson: event.target.value }))}
+            <div className="fieldGroup">
+              <TraitBuilder
+                rows={traitRows}
+                rawJson={form.traitsJson}
+                rawError={traitsJsonError}
+                showRawEditor={showRawTraitsEditor}
+                onToggleRawEditor={() => setShowRawTraitsEditor((current) => !current)}
+                onAddTrait={addTraitRow}
+                onUpdateTrait={updateTraitRow}
+                onRemoveTrait={removeTraitRow}
+                onRawJsonChange={(value) =>
+                  setForm((current) => ({
+                    ...current,
+                    traitsJson: value
+                  }))
+                }
               />
-            </label>
+            </div>
 
             <div className="adminToolbar">
               <button className="chip" type="button" onClick={() => navigate("/create/collection")}>
@@ -3557,10 +4972,55 @@ function CreatePage() {
             subtitle="This metadata is pinned to local IPFS and then minted through your OpenSea-compatible Reef collection."
           />
           <div className="createPreviewCard">
-            <img className="createPreviewImage" src={previewImage} alt={form.name || "NFT preview"} />
+            <div className="createPreviewStage">
+              <div className="createPreviewBackdrop" />
+              {!previewImageFailed ? (
+                <img
+                  className="createPreviewImage"
+                  src={assetUrl(previewImage)}
+                  alt={form.name || "NFT preview"}
+                  onError={(event) => {
+                    applyImageFallback(event.currentTarget, form.name || selectedCollection?.name || "Reef");
+                    setPreviewImageFailed(true);
+                  }}
+                />
+              ) : (
+                <div className="createPreviewFallback">
+                  <img
+                    className="createPreviewFallbackImage"
+                    src={creatorCollectionArtworkPreview(selectedCollection)}
+                    alt={selectedCollection?.name || "Collection artwork"}
+                    onError={(event) =>
+                      applyImageFallback(event.currentTarget, selectedCollection?.name || "Reef")
+                    }
+                  />
+                  <div className="createPreviewFallbackCopy">
+                    <span className="createPreviewEyebrow">Preview ready</span>
+                    <strong>{form.name || "Untitled NFT"}</strong>
+                    <p>{form.imageUrl.trim() ? "Showing a safe fallback while your upload refreshes." : "Using the selected collection artwork for this NFT."}</p>
+                  </div>
+                </div>
+              )}
+            </div>
             <div className="createPreviewBody">
+              <span className="createPreviewEyebrow">
+                {form.imageUrl.trim() ? "Custom artwork" : "Collection artwork fallback"}
+              </span>
               <strong>{form.name || "Untitled NFT"}</strong>
               <p>{form.description || "Add a description to preview your metadata."}</p>
+              {previewTraitChips.length ? (
+                <div className="createPreviewTraits">
+                  {previewTraitChips.map((trait) => (
+                    <span
+                      key={`${trait.trait_type}:${trait.value}`}
+                      className="createPreviewTraitChip"
+                    >
+                      <strong>{trait.trait_type || "Trait"}</strong>
+                      <span>{trait.value || "Value"}</span>
+                    </span>
+                  ))}
+                </div>
+              ) : null}
               <div className="badgeRow">
                 <span className="heroBadge">{selectedCollection?.chainName || bootstrap.config.network.chainName}</span>
                 <span className="heroBadge">{selectedCollection?.standard || "ERC721"}</span>
@@ -3606,7 +5066,18 @@ function CreatePage() {
 }
 
 function CreateCollectionPage() {
-  const { account, authToken, bootstrap, connectWallet, getWalletSession, setStatus, refreshMarket } = useMarketplace();
+  const {
+    account,
+    authToken,
+    bootstrap,
+    connectWallet,
+    getWalletSession,
+    hideActionModal,
+    setStatus,
+    showActionModal,
+    updateActionModal,
+    refreshMarket
+  } = useMarketplace();
   const navigate = useNavigate();
   const imageInputRef = useRef<HTMLInputElement | null>(null);
   const publishLockRef = useRef(false);
@@ -3659,6 +5130,29 @@ function CreateCollectionPage() {
         : creatorCapability.mode === "mixed"
           ? "Mixed deployment mode"
           : "Publishing unavailable";
+  const deploymentEngineLabel =
+    creatorCapability.mode === "fallback" ? "Deployment Engine" : "Active Factory";
+  const deploymentEngineValue =
+    creatorCapability.mode === "fallback"
+      ? "Relayed direct deploy"
+      : creatorCapability.factoryAddress
+        ? shortenAddress(creatorCapability.factoryAddress)
+        : "Not deployed";
+  const deploymentPathValue =
+    creatorCapability.mode === "official"
+      ? "Official OpenSea"
+      : creatorCapability.mode === "fallback"
+        ? "Reef Fallback"
+        : "Blocked";
+  const marketplacePathValue = marketplaceCapability.enabled
+    ? marketplaceCapability.address
+      ? shortenAddress(marketplaceCapability.address)
+      : "Enabled"
+    : "Blocked";
+  const seaportStatusValue = seaportReady
+    ? shortenAddress(bootstrap.config.contracts.official.seaport.address)
+    : "Unavailable";
+  const marketplaceModeTone = marketplaceCapability.enabled ? marketplaceCapability.mode : "blocked";
   const publishBlocker = (() => {
     if (!account) {
       return "Connect your Reef wallet to publish a collection.";
@@ -3728,7 +5222,7 @@ function CreateCollectionPage() {
           fee_recipient: ownerAddress
         }
       })
-    });
+    }, uploadRequestTimeoutMs);
 
     setContractMetadataUri(result.uri);
     setContractMetadataGatewayUrl(result.gatewayUrl);
@@ -3772,7 +5266,7 @@ function CreateCollectionPage() {
         dataUrl: source,
         contentType: mimeType
       })
-    });
+    }, uploadRequestTimeoutMs);
 
     setCollectionImageGatewayUrl(result.gatewayUrl);
     return {
@@ -3829,7 +5323,7 @@ function CreateCollectionPage() {
         deploymentTxHash: input.deploymentTxHash ?? "",
         status: input.status
       })
-    });
+    }, mutationRequestTimeoutMs);
   }
 
   async function submitCollection(event: React.FormEvent<HTMLFormElement>) {
@@ -3845,14 +5339,26 @@ function CreateCollectionPage() {
     let collectionImage: { metadataImage: string; displayImage: string } | null = null;
 
     try {
+      showActionModal({
+        title: "Creating collection",
+        message: "Preparing collection artwork and contract metadata.",
+        detail: form.name.trim() ? `Collection: ${form.name.trim()}` : undefined,
+        steps: ["Prepare collection", "Deploy contract", "Confirm on Reef", "Open mint workspace"],
+        activeStep: 0
+      });
       const session = await getWalletSession();
       if (!session) {
+        hideActionModal();
         return;
       }
 
       ownerAddress = session.address;
       collectionImage = await ensureCollectionImageReference();
       contractUri = await ensureContractMetadataUri(session.address, collectionImage);
+      updateActionModal({
+        activeStep: 1,
+        message: "Collection metadata is ready. Deploying the contract now."
+      });
 
       if (!creatorPublishReady) {
         const result = await persistCollectionRecord({
@@ -3863,6 +5369,14 @@ function CreateCollectionPage() {
           deploymentMode: "blocked",
           marketplaceMode: marketplaceCapability.mode
         });
+        updateActionModal({
+          tone: "error",
+          activeStep: 1,
+          message: `Collection saved, but publishing is unavailable: ${publishBlocker}`,
+          detail: "You can revisit this draft from your created collections once the Reef deployment path is ready."
+        });
+        await sleepMs(1100);
+        hideActionModal();
         setStatus(`Collection saved, but contract publish is blocked: ${publishBlocker}`);
         refreshMarket();
         navigate(`/profile/${session.address}?tab=created&collection=${result.slug}`);
@@ -3873,7 +5387,6 @@ function CreateCollectionPage() {
       let tx;
       const normalizedSymbol = form.symbol.trim().toUpperCase();
       const royaltyBps = Number(form.royaltyBps || "0");
-      const txOverrides = getReefTransactionOverrides(bootstrap.config, "collection");
       const resolvedAuthToken =
         authToken ||
         (typeof window !== "undefined"
@@ -3895,26 +5408,33 @@ function CreateCollectionPage() {
           await creatorFactory.predictCollectionAddress(session.address, salt)
         );
         setStatus("Publishing SeaDrop-compatible ERC721 collection contract on Reef...");
-        tx = await creatorFactory.createCollection(
-          form.name.trim(),
-          normalizedSymbol,
-          {
-            baseURI: "",
-            contractURI: contractUri,
-            dropURI: contractUri,
-            maxSupply: BigInt(Math.max(1, Number(form.maxSupply || "1000"))),
-            creatorPayoutAddress: session.address,
-            royaltyBps,
-            mintPrice: 0,
-            startTime: 0,
-            endTime: 0,
-            maxTotalMintableByWallet: 0,
-            feeBps: 0,
-            restrictFeeRecipients: false
-          },
-          salt,
-          txOverrides
+        const txRequest = await buildContractWriteRequest(
+          creatorFactory,
+          "createCollection",
+          [
+            form.name.trim(),
+            normalizedSymbol,
+            {
+              baseURI: "",
+              contractURI: contractUri,
+              dropURI: contractUri,
+              maxSupply: BigInt(Math.max(1, Number(form.maxSupply || "1000"))),
+              creatorPayoutAddress: session.address,
+              royaltyBps,
+              mintPrice: 0,
+              startTime: 0,
+              endTime: 0,
+              maxTotalMintableByWallet: 0,
+              feeBps: 0,
+              restrictFeeRecipients: false
+            },
+            salt
+          ],
+          session,
+          bootstrap.config,
+          "collection"
         );
+        tx = await session.signer.sendTransaction(txRequest);
       } else {
         if (!resolvedAuthToken) {
           throw new Error("Wallet session is not authenticated.");
@@ -3924,6 +5444,13 @@ function CreateCollectionPage() {
             ? "Publishing ERC1155 collection through the Reef relayer..."
             : "Publishing ERC721 collection through the Reef relayer..."
         );
+        updateActionModal({
+          activeStep: 1,
+          message:
+            form.standard === "ERC1155"
+              ? "Publishing your ERC1155 collection through the Reef relay."
+              : "Publishing your ERC721 collection through the Reef relay."
+        });
 
         const deployed = await fetchJson<{
           ok: boolean;
@@ -3957,8 +5484,16 @@ function CreateCollectionPage() {
             contractUri,
             royaltyBps
           })
-        });
+        }, deployRequestTimeoutMs);
 
+        updateActionModal({
+          tone: "success",
+          activeStep: 3,
+          message: `${form.name.trim()} is deployed and ready for minting.`,
+          detail: `Contract: ${shortenAddress(deployed.contractAddress)}`
+        });
+        await sleepMs(750);
+        hideActionModal();
         setStatus(`Collection contract deployed on Reef via ${deployed.deploymentMode}. Add NFTs to the mint queue next.`);
         refreshMarket();
         navigate(`/create${buildQuery({ collection: deployed.slug, batch: "1", fresh: "1" })}`);
@@ -3966,6 +5501,10 @@ function CreateCollectionPage() {
       }
 
       setStatus("Waiting for Reef to confirm the collection transaction...");
+      updateActionModal({
+        activeStep: 2,
+        message: "Transaction submitted. Waiting for Reef to confirm the deployed contract."
+      });
       const receipt =
         (await Promise.race([
           tx.wait(),
@@ -3993,19 +5532,38 @@ function CreateCollectionPage() {
         factoryAddress: creatorCapability.factoryAddress,
         marketplaceMode: marketplaceCapability.mode
       });
+      updateActionModal({
+        tone: "success",
+        activeStep: 3,
+        message: `${form.name.trim()} is deployed and ready for minting.`,
+        detail: `Contract: ${shortenAddress(deployedAddress)}`
+      });
+      await sleepMs(750);
+      hideActionModal();
       setStatus(`Collection contract deployed on Reef via ${creatorCapability.mode}. Add NFTs to the mint queue next.`);
       refreshMarket();
       navigate(`/create${buildQuery({ collection: result.slug, batch: "1", fresh: "1" })}`);
     } catch (error) {
+      const normalizedErrorMessage = normalizeReefRelayErrorMessage(
+        error instanceof Error ? error.message : "Failed to create collection."
+      );
+      updateActionModal({
+        tone: "error",
+        activeStep: 1,
+        message: normalizedErrorMessage,
+        detail: "Your draft was kept locally so you can try again without losing the collection setup."
+      });
       if (ownerAddress && contractUri) {
-        await persistCollectionRecord({
+        void persistCollectionRecord({
           ownerAddress,
           contractUri,
           avatarUrl: collectionImage?.displayImage,
           status: "draft"
         }).catch(() => null);
       }
-      setStatus(error instanceof Error ? error.message : "Failed to create collection.");
+      await sleepMs(1200);
+      hideActionModal();
+      setStatus(normalizedErrorMessage);
     } finally {
       setSubmitting(false);
       publishLockRef.current = false;
@@ -4234,42 +5792,69 @@ function CreateCollectionPage() {
 
             <div className="contractStackPanel">
               <div className="contractStackHeader">
-                <strong>Reef Marketplace Stack</strong>
+                <div className="contractStackIntro">
+                  <span className="contractStackEyebrow">Publishing runtime</span>
+                  <strong>Reef Marketplace Stack</strong>
+                  <p>
+                    Your collection will use the active Reef creator route below, with marketplace support and Seaport availability called out separately.
+                  </p>
+                </div>
                 <span className={`contractStatusPill${creatorPublishReady ? " live" : " blocked"}`}>
                   {deploymentModeLabel}
                 </span>
               </div>
-              <div className="contractStackRow">
-                <span>{creatorCapability.mode === "fallback" ? "Deployment Engine" : "Active Factory"}</span>
-                <strong>
-                  {creatorCapability.mode === "fallback"
-                    ? "Relayed direct deploy"
-                    : creatorCapability.factoryAddress
-                      ? shortenAddress(creatorCapability.factoryAddress)
-                      : "Not deployed"}
-                </strong>
-              </div>
-              <div className="contractStackRow">
-                <span>Deployment Path</span>
-                <strong>
-                  {creatorCapability.mode === "official"
-                    ? "Official OpenSea"
-                    : creatorCapability.mode === "fallback"
-                      ? "Reef Fallback"
-                      : "Blocked"}
-                </strong>
-              </div>
-              <div className="contractStackRow">
-                <span>Marketplace Path</span>
-                <strong>
-                  {marketplaceCapability.enabled
-                    ? `${marketplaceCapability.mode} • ${marketplaceCapability.address ? shortenAddress(marketplaceCapability.address) : "enabled"}`
-                    : "Blocked"}
-                </strong>
-              </div>
-              <div className="contractStackRow">
-                <span>Official Seaport</span>
-                <strong>{seaportReady ? shortenAddress(bootstrap.config.contracts.official.seaport.address) : "Unavailable"}</strong>
+              <div className="contractStackGrid">
+                <article className="contractStackCard">
+                  <span className="contractStackLabel">{deploymentEngineLabel}</span>
+                  <strong>{deploymentEngineValue}</strong>
+                  <small>
+                    {creatorCapability.mode === "fallback"
+                      ? "The API relays deployment for this collection path."
+                      : "Official factory routing is available for this collection standard."}
+                  </small>
+                </article>
+
+                <article className="contractStackCard">
+                  <span className="contractStackLabel">Deployment Path</span>
+                  <strong>{deploymentPathValue}</strong>
+                  <small>
+                    {creatorCapability.mode === "fallback"
+                      ? "Fastest route for creator publishing on the current Reef runtime."
+                      : creatorCapability.mode === "official"
+                        ? "Wallet-native OpenSea-compatible publishing path."
+                        : "Publishing is currently blocked for this setup."}
+                  </small>
+                </article>
+
+                <article className="contractStackCard">
+                  <div className="contractStackCardTopline">
+                    <span className="contractStackLabel">Marketplace Path</span>
+                    <span className={`contractStackModePill ${marketplaceModeTone}`}>
+                      {marketplaceCapability.enabled ? marketplaceCapability.mode : "blocked"}
+                    </span>
+                  </div>
+                  <strong>{marketplacePathValue}</strong>
+                  <small>
+                    {marketplaceCapability.enabled
+                      ? "Listings and sales route through the active marketplace capability."
+                      : "Marketplace support is not active for this collection standard."}
+                  </small>
+                </article>
+
+                <article className="contractStackCard">
+                  <div className="contractStackCardTopline">
+                    <span className="contractStackLabel">Official Seaport</span>
+                    <span className={`contractStackModePill ${seaportReady ? "official" : "blocked"}`}>
+                      {seaportReady ? "verified" : "offline"}
+                    </span>
+                  </div>
+                  <strong>{seaportStatusValue}</strong>
+                  <small>
+                    {seaportReady
+                      ? "Canonical Seaport deployment is available for this environment."
+                      : "Creator publishing will use the Reef-native path until Seaport is reachable."}
+                  </small>
+                </article>
               </div>
               {!creatorPublishReady ? (
                 <p className="contractStackWarning">{publishBlocker}</p>
@@ -4337,6 +5922,12 @@ function CreateDropPage() {
     startLabel: "TBD",
     description: ""
   });
+  const previewTitle = form.name.trim() || "Reef Genesis Mint";
+  const previewCreator = form.creatorName.trim() || "Reef Team";
+  const previewDescription =
+    form.description.trim() || "Set the cover, timing, supply, and price. The public drops card updates live as you shape the launch.";
+  const previewStage = form.stage.charAt(0).toUpperCase() + form.stage.slice(1);
+  const previewCover = assetUrl(form.coverUrl.trim() || placeholderAsset(previewTitle, "#2081e2"));
 
   if (!account) {
     return (
@@ -4409,117 +6000,207 @@ function CreateDropPage() {
   }
 
   return (
-    <div className="darkPage">
-      <section className="pagePanel">
-        <SectionHeader title="Create Drop" subtitle="Create a scheduled or live drop for Reef. Saved drops automatically appear on the public Drops page." />
-        <div className="metricsRow compact">
-          <MetricPanel label="Admin wallet" value={shortenAddress(account)} />
-          <MetricPanel label="Visibility" value="Public Drops" />
-          <MetricPanel label="Default stage" value={form.stage} />
-        </div>
-      </section>
-
-      <section className="sectionGrid adminGrid">
-        <div className="panelSurface">
-          <SectionHeader title="Drop details" subtitle="This is the launch card the public marketplace will show in /drops." />
-          <form className="adminForm" onSubmit={submitDrop}>
-            <div className="fieldGrid">
-              <label className="fieldGroup">
-                <span>Drop name</span>
-                <input
-                  className="textInput"
-                  value={form.name}
-                  onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))}
-                  placeholder="Reef Genesis Mint"
-                />
-              </label>
-              <label className="fieldGroup">
-                <span>Creator name</span>
-                <input
-                  className="textInput"
-                  value={form.creatorName}
-                  onChange={(event) => setForm((current) => ({ ...current, creatorName: event.target.value }))}
-                  placeholder="Reef Team"
-                />
-              </label>
-              <label className="fieldGroup fullSpan">
-                <span>Cover image URL</span>
-                <input
-                  className="textInput"
-                  value={form.coverUrl}
-                  onChange={(event) => setForm((current) => ({ ...current, coverUrl: event.target.value }))}
-                  placeholder="https://... or /storage/..."
-                />
-              </label>
-              <label className="fieldGroup">
-                <span>Stage</span>
-                <select
-                  className="textInput"
-                  value={form.stage}
-                  onChange={(event) => setForm((current) => ({ ...current, stage: event.target.value }))}
-                >
-                  <option value="draft">Draft</option>
-                  <option value="upcoming">Upcoming</option>
-                  <option value="live">Live</option>
-                  <option value="ended">Ended</option>
-                </select>
-              </label>
-              <label className="fieldGroup">
-                <span>Mint price</span>
-                <input
-                  className="textInput"
-                  value={form.mintPrice}
-                  onChange={(event) => setForm((current) => ({ ...current, mintPrice: event.target.value }))}
-                  placeholder="0 REEF"
-                />
-              </label>
-              <label className="fieldGroup">
-                <span>Supply</span>
-                <input
-                  className="textInput"
-                  value={form.supply}
-                  onChange={(event) => setForm((current) => ({ ...current, supply: event.target.value }))}
-                  placeholder="100"
-                />
-              </label>
-              <label className="fieldGroup">
-                <span>Start label</span>
-                <input
-                  className="textInput"
-                  value={form.startLabel}
-                  onChange={(event) => setForm((current) => ({ ...current, startLabel: event.target.value }))}
-                  placeholder="Apr 15, 7:00 PM IST"
-                />
-              </label>
+    <div className="darkPage createDropPage">
+      <section className="dropCreateShell">
+        <div className="dropCreateHero">
+          <div className="dropCreateLead">
+            <span className="metaLabel">Reef Studio</span>
+            <h1>Create a drop with a real launch presence</h1>
+            <p>
+              Shape the cover, timing, price, and stage here. The preview updates live and published drops appear on the public Drops page immediately.
+            </p>
+            <div className="dropCreateMetaGrid">
+              <div className="dropCreateMetaCard">
+                <span>Admin wallet</span>
+                <strong>{shortenAddress(account)}</strong>
+              </div>
+              <div className="dropCreateMetaCard">
+                <span>Visibility</span>
+                <strong>Public Drops</strong>
+              </div>
+              <div className="dropCreateMetaCard">
+                <span>Default stage</span>
+                <strong>{previewStage}</strong>
+              </div>
             </div>
+          </div>
 
-            <label className="fieldGroup">
-              <span>Description</span>
-              <textarea
-                className="textArea"
-                value={form.description}
-                onChange={(event) => setForm((current) => ({ ...current, description: event.target.value }))}
-                placeholder="Describe the drop, its format, and why collectors should care."
+          <aside className="dropCreateGuide">
+            <span className="metaLabel">After publishing</span>
+            <h2>What happens next</h2>
+            <div className="dropCreateTimeline">
+              <div className="dropCreateTimelineItem">
+                <strong>1. Written to admin storage</strong>
+                <p>The drop is saved to the same source the public marketplace and studio surfaces read from.</p>
+              </div>
+              <div className="dropCreateTimelineItem">
+                <strong>2. Appears on /drops</strong>
+                <p>The selected stage controls whether it shows up as draft, upcoming, live, or ended.</p>
+              </div>
+              <div className="dropCreateTimelineItem">
+                <strong>3. Editable later</strong>
+                <p>You can still revisit the full admin panel to adjust or archive the drop after launch.</p>
+              </div>
+            </div>
+          </aside>
+        </div>
+
+        <div className="dropCreateWorkspace">
+          <div className="dropCreatePreviewColumn">
+            <div className="dropPreviewPoster">
+              <img
+                className="dropPreviewImage"
+                src={previewCover}
+                alt={previewTitle}
+                onError={(event) => applyImageFallback(event.currentTarget, previewTitle, "#2081e2")}
               />
-            </label>
-
-            <div className="adminToolbar">
-              <button className="chip" type="button" onClick={() => navigate("/studio")}>
-                Back to Studio
-              </button>
-              <button className="primaryCta" type="submit" disabled={submitting}>
-                {submitting ? "Creating..." : "Create Drop"}
-              </button>
+              <div className="dropPreviewOverlay">
+                <div className="dropPreviewTop">
+                  <span className={`dropPreviewStage stage-${form.stage}`}>{previewStage}</span>
+                  <span className="dropPreviewVisibility">Public Drops</span>
+                </div>
+                <div className="dropPreviewCopy">
+                  <span className="dropPreviewEyebrow">Live launch preview</span>
+                  <h2>{previewTitle}</h2>
+                  <p>By {previewCreator}</p>
+                  <div className="dropPreviewMetricGlass">
+                    <div className="dropPreviewMetric">
+                      <span>Mint price</span>
+                      <strong>{form.mintPrice || "0 REEF"}</strong>
+                    </div>
+                    <div className="dropPreviewMetric">
+                      <span>Supply</span>
+                      <strong>{form.supply || "0"}</strong>
+                    </div>
+                    <div className="dropPreviewMetric">
+                      <span>Start</span>
+                      <strong>{form.startLabel || "TBD"}</strong>
+                    </div>
+                  </div>
+                </div>
+              </div>
             </div>
-          </form>
-        </div>
+            <div className="dropPreviewNotes">
+              <span className="metaLabel">Launch card copy</span>
+              <p>{previewDescription}</p>
+            </div>
+          </div>
 
-        <div className="panelSurface">
-          <SectionHeader title="After publishing" subtitle="What happens once you save this drop." />
-          <div className="adminNotes">
-            <p className="panelBody">The drop is written to the same admin drop store used by the public marketplace.</p>
-            <p className="panelBody">It will appear on the public Drops page immediately, filtered by the stage you choose.</p>
-            <p className="panelBody">You can still edit or archive it later from the full Reef admin panel.</p>
+          <div className="dropCreateFormColumn">
+            <form className="adminForm dropCreateForm" onSubmit={submitDrop}>
+              <div className="dropFormSection">
+                <div className="dropFormSectionHead">
+                  <span>Basics</span>
+                  <h3>Drop identity</h3>
+                  <p>This is the title, creator, and artwork collectors will recognize in the public feed.</p>
+                </div>
+                <div className="fieldGrid">
+                  <label className="fieldGroup">
+                    <span>Drop name</span>
+                    <input
+                      className="textInput"
+                      value={form.name}
+                      onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))}
+                      placeholder="Reef Genesis Mint"
+                    />
+                  </label>
+                  <label className="fieldGroup">
+                    <span>Creator name</span>
+                    <input
+                      className="textInput"
+                      value={form.creatorName}
+                      onChange={(event) => setForm((current) => ({ ...current, creatorName: event.target.value }))}
+                      placeholder="Reef Team"
+                    />
+                  </label>
+                  <label className="fieldGroup fullSpan">
+                    <span>Cover image URL</span>
+                    <input
+                      className="textInput"
+                      value={form.coverUrl}
+                      onChange={(event) => setForm((current) => ({ ...current, coverUrl: event.target.value }))}
+                      placeholder="https://... or /storage/..."
+                    />
+                  </label>
+                </div>
+              </div>
+
+              <div className="dropFormSection">
+                <div className="dropFormSectionHead">
+                  <span>Launch settings</span>
+                  <h3>Stage, price, and supply</h3>
+                  <p>Use these values to control how the drop is framed across Studio and the public Drops route.</p>
+                </div>
+                <div className="fieldGrid">
+                  <label className="fieldGroup">
+                    <span>Stage</span>
+                    <select
+                      className="textInput"
+                      value={form.stage}
+                      onChange={(event) => setForm((current) => ({ ...current, stage: event.target.value }))}
+                    >
+                      <option value="draft">Draft</option>
+                      <option value="upcoming">Upcoming</option>
+                      <option value="live">Live</option>
+                      <option value="ended">Ended</option>
+                    </select>
+                  </label>
+                  <label className="fieldGroup">
+                    <span>Mint price</span>
+                    <input
+                      className="textInput"
+                      value={form.mintPrice}
+                      onChange={(event) => setForm((current) => ({ ...current, mintPrice: event.target.value }))}
+                      placeholder="0 REEF"
+                    />
+                  </label>
+                  <label className="fieldGroup">
+                    <span>Supply</span>
+                    <input
+                      className="textInput"
+                      value={form.supply}
+                      onChange={(event) => setForm((current) => ({ ...current, supply: event.target.value }))}
+                      placeholder="100"
+                    />
+                  </label>
+                  <label className="fieldGroup">
+                    <span>Start label</span>
+                    <input
+                      className="textInput"
+                      value={form.startLabel}
+                      onChange={(event) => setForm((current) => ({ ...current, startLabel: event.target.value }))}
+                      placeholder="Apr 15, 7:00 PM IST"
+                    />
+                  </label>
+                </div>
+              </div>
+
+              <div className="dropFormSection">
+                <div className="dropFormSectionHead">
+                  <span>Story</span>
+                  <h3>Description</h3>
+                  <p>Give collectors a short, clear reason to care about the launch.</p>
+                </div>
+                <label className="fieldGroup">
+                  <span>Description</span>
+                  <textarea
+                    className="textArea"
+                    value={form.description}
+                    onChange={(event) => setForm((current) => ({ ...current, description: event.target.value }))}
+                    placeholder="Describe the drop, its format, and why collectors should care."
+                  />
+                </label>
+              </div>
+
+              <div className="dropCreateActions">
+                <button className="actionButton muted" type="button" onClick={() => navigate("/studio")}>
+                  Back to Studio
+                </button>
+                <button className="primaryCta" type="submit" disabled={submitting}>
+                  {submitting ? "Creating drop..." : "Publish Drop"}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       </section>
@@ -4528,7 +6209,7 @@ function CreateDropPage() {
 }
 
 function SupportPage() {
-  const { bootstrap } = useMarketplace();
+  const { bootstrap, account } = useMarketplace();
   const navigate = useNavigate();
 
   return (
@@ -4543,10 +6224,10 @@ function SupportPage() {
       </section>
 
       <section className="taskGrid studioActionGrid">
-        <button className="taskCard dark studioActionCard" type="button" onClick={() => navigate("/swap")}>
-          <span className="metaLabel">Wallet</span>
-          <h3>Open network tools</h3>
-          <p>Copy the Reef RPC, switch the wallet network, and verify balance.</p>
+        <button className="taskCard dark studioActionCard" type="button" onClick={() => navigate(account ? `/profile/${account}?tab=portfolio` : "/profile")}>
+          <span className="metaLabel">Portfolio</span>
+          <h3>Open collector profile</h3>
+          <p>View wallet holdings, profile tabs, and your live Reef portfolio from one place.</p>
         </button>
         <button className="taskCard dark studioActionCard" type="button" onClick={() => navigate("/admin")}>
           <span className="metaLabel">Operations</span>
@@ -4611,12 +6292,71 @@ function CollectionPage({
           }
           return [item.name, item.description].some((value) => value.toLowerCase().includes(query.toLowerCase()));
         });
+        const normalizedPrimaryAction = data.collection.actionBar.primary.trim().toLowerCase();
+        const normalizedTertiaryAction = data.collection.actionBar.tertiary.trim().toLowerCase();
         const floorItem = visibleItems
           .filter((item) => item.listed)
           .sort((left, right) => BigInt(left.currentPriceRaw) < BigInt(right.currentPriceRaw) ? -1 : 1)[0];
+        const ownedUnlistedItem =
+          account
+            ? visibleItems.find(
+                (item) =>
+                  item.ownerAddress.toLowerCase() === account.toLowerCase() &&
+                  !item.listed
+              )
+            : null;
         const collectionHeroStyle = {
           "--collection-hero-image": `url("${assetUrl(data.collection.avatarUrl || data.collection.hero.backgroundUrl)}")`
         } as CSSProperties;
+        const openCreateNft = () => {
+          navigate(`/create${buildQuery({ collection: data.collection.slug })}`);
+        };
+        const handleStickyTertiaryAction = () => {
+          if (normalizedTertiaryAction === "activity") {
+            navigate(`/collection/${slug}/activity`);
+            return;
+          }
+          if (normalizedTertiaryAction === "holders") {
+            navigate(`/collection/${slug}/holders`);
+            return;
+          }
+          updateParams(params, setParams, { sort: "price-low" });
+        };
+        const handleStickyPrimaryAction = () => {
+          if (normalizedPrimaryAction === "create nft" || normalizedPrimaryAction === "mint nft") {
+            openCreateNft();
+            return;
+          }
+          if (normalizedPrimaryAction === "buy floor") {
+            if (floorItem) {
+              navigate(`/item/reef/${floorItem.contractAddress}/${floorItem.tokenId}`);
+              return;
+            }
+            setStatus("No floor listing is available in this collection right now.");
+            return;
+          }
+          if (normalizedPrimaryAction === "list item") {
+            if (!account) {
+              void connectWallet();
+              return;
+            }
+            if (ownedUnlistedItem) {
+              navigate(`/item/reef/${ownedUnlistedItem.contractAddress}/${ownedUnlistedItem.tokenId}`);
+              return;
+            }
+            if (floorItem) {
+              navigate(`/item/reef/${floorItem.contractAddress}/${floorItem.tokenId}`);
+              return;
+            }
+            setStatus("Open one of your NFTs to create a listing.");
+            return;
+          }
+          if (!account) {
+            void connectWallet();
+            return;
+          }
+          setStatus(`${data.collection.actionBar.primary} is not wired for this collection yet.`);
+        };
 
         return (
           <div className="darkPage collectionPage" style={themeStyle(data.collection.theme)}>
@@ -4707,7 +6447,12 @@ function CollectionPage({
             {(mode === "items" || mode === "explore") ? (
               visibleItems.length === 0 ? (
                 <section className="pagePanel">
-                  <p className="panelBody">No items to display.</p>
+                  <AmbientEmptyState
+                    variant="cards"
+                    eyebrow="Items"
+                    title="No items to display"
+                    copy="Mint into this collection and the NFTs will start appearing here."
+                  />
                 </section>
               ) : (
                 <div className="itemGrid">
@@ -4722,7 +6467,15 @@ function CollectionPage({
               <section className="pagePanel">
                 <SectionHeader title="Collection offers" subtitle="Offers across the collection" />
                 <div className="offerTable">
-                  {data.offers.length === 0 ? <p className="panelBody">No offers to display.</p> : null}
+                  {data.offers.length === 0 ? (
+                    <AmbientEmptyState
+                      compact
+                      variant="rows"
+                      eyebrow="Offers"
+                      title="No offers to display"
+                      copy="Collection offers will appear here once buyers start bidding."
+                    />
+                  ) : null}
                   {data.offers.map((offer) => (
                     <div className="offerRow" key={offer.itemId}>
                       <strong>{offer.itemName}</strong>
@@ -4739,7 +6492,15 @@ function CollectionPage({
               <section className="pagePanel">
                 <SectionHeader title="Holders" subtitle="Wallets that currently hold items from this collection" />
                 <div className="offerTable">
-                  {data.holders.length === 0 ? <p className="panelBody">No holders to display.</p> : null}
+                  {data.holders.length === 0 ? (
+                    <AmbientEmptyState
+                      compact
+                      variant="rows"
+                      eyebrow="Holders"
+                      title="No holders to display"
+                      copy="Holder addresses appear here once NFTs from this collection are minted or transferred."
+                    />
+                  ) : null}
                   {data.holders.map((holder) => (
                     <div className="offerRow" key={holder.slug}>
                       <div className="collectionIdentity">
@@ -4758,7 +6519,15 @@ function CollectionPage({
               <section className="pagePanel">
                 <SectionHeader title="Traits" subtitle="Browse traits across the collection" />
                 <div className="traitSummaryGrid">
-                  {data.traitHighlights.length === 0 ? <p className="panelBody">No traits to display.</p> : null}
+                  {data.traitHighlights.length === 0 ? (
+                    <AmbientEmptyState
+                      compact
+                      variant="rows"
+                      eyebrow="Traits"
+                      title="No traits to display"
+                      copy="Trait highlights will appear here once NFTs in this collection include metadata attributes."
+                    />
+                  ) : null}
                   {data.traitHighlights.map((trait) => (
                     <article className="traitSummaryCard" key={trait.type}>
                       <span className="metaLabel">{trait.type}</span>
@@ -4775,7 +6544,15 @@ function CollectionPage({
               <section className="pagePanel">
                 <SectionHeader title="Activity" subtitle="Collection activity" />
                 <div className="activityTable">
-                  {data.activities.length === 0 ? <p className="panelBody">No activity yet.</p> : null}
+                  {data.activities.length === 0 ? (
+                    <AmbientEmptyState
+                      compact
+                      variant="rows"
+                      eyebrow="Activity"
+                      title="No activity yet"
+                      copy="Mint, list, sale, and transfer events for this collection will show up here."
+                    />
+                  ) : null}
                   {data.activities.map((entry) => (
                     <div className="activityTableRow" key={entry.id}>
                       <div>
@@ -4795,20 +6572,18 @@ function CollectionPage({
             {mode === "analytics" ? (
               data.analytics.length === 0 ? (
                 <section className="pagePanel">
-                  <p className="panelBody">No analytics to display.</p>
+                  <AmbientEmptyState
+                    compact
+                    variant="rows"
+                    eyebrow="Analytics"
+                    title="No analytics to display"
+                    copy="As trading and ownership data builds up, this collection will unlock analytics here."
+                  />
                 </section>
               ) : (
                 <div className="analyticsGrid">
                   {data.analytics.map((metric) => (
-                    <article className="pagePanel analyticsCard dark" key={metric.label}>
-                      <span className="metaLabel">{metric.label}</span>
-                      <strong>{metric.value}</strong>
-                      <div className="miniBars">
-                        {metric.points.map((point, index) => (
-                          <div key={`${metric.label}-${index}`} style={{ height: `${point}%` }} />
-                        ))}
-                      </div>
-                    </article>
+                    <AnalyticsSparklineCard key={metric.label} metric={metric} />
                   ))}
                 </div>
               )
@@ -4830,7 +6605,7 @@ function CollectionPage({
                 <button className="actionButton secondary" type="button" onClick={() => void connectWallet()}>
                   {account ? "Wallet connected" : "Connect wallet"}
                 </button>
-                <button className="actionButton secondary" type="button" onClick={() => updateParams(params, setParams, { sort: "price-low" })}>
+                <button className="actionButton secondary" type="button" onClick={handleStickyTertiaryAction}>
                   {data.collection.actionBar.tertiary}
                 </button>
                 {data.collection.actionBar.quaternary ? (
@@ -4839,17 +6614,7 @@ function CollectionPage({
                 <button
                   className="actionButton primary"
                   type="button"
-                  onClick={() => {
-                    if (floorItem) {
-                      navigate(`/item/reef/${floorItem.contractAddress}/${floorItem.tokenId}`);
-                      return;
-                    }
-                    if (!account) {
-                      void connectWallet();
-                      return;
-                    }
-                    setStatus("Open one of your NFTs to create a listing.");
-                  }}
+                  onClick={handleStickyPrimaryAction}
                 >
                   {data.collection.actionBar.primary}
                 </button>
@@ -4866,7 +6631,10 @@ function ItemModalPage() {
   const { contract, tokenId } = useParams();
   const {
     bootstrap,
+    hideActionModal,
     setStatus,
+    showActionModal,
+    updateActionModal,
     account,
     connectWallet,
     getWalletSession,
@@ -4901,12 +6669,20 @@ function ItemModalPage() {
     listingActionLockRef.current = true;
     setListingSubmitting(true);
     try {
+      showActionModal({
+        title: "Creating listing",
+        message: "Checking approvals and preparing your listing on Reef.",
+        detail: data.item.name,
+        steps: ["Check approvals", "Create listing", "Refresh marketplace"],
+        activeStep: 0
+      });
       const normalizedPrice = priceInput.trim();
       if (!normalizedPrice) {
         throw new Error(`Enter a ${bootstrap.config.network.nativeCurrency.symbol} price to create the listing.`);
       }
       const session = await getWalletSession();
       if (!session) {
+        hideActionModal();
         return;
       }
       if (!sameAddress(session.address, data.item.ownerAddress)) {
@@ -4921,7 +6697,6 @@ function ItemModalPage() {
         return;
       }
 
-      const txOverrides = getReefTransactionOverrides(bootstrap.config, "marketplace");
       const collectionContract = new Contract(
         data.item.contractAddress,
         collectionAbi,
@@ -4944,27 +6719,57 @@ function ItemModalPage() {
 
       if (!sameAddress(approvedAddress, marketplaceAddress) && !approvedForAll) {
         setStatus("Approving NFT for the Reef marketplace...");
-        const approveTx = await collectionContract.approve(
-          marketplaceAddress,
-          BigInt(data.item.tokenId),
-          txOverrides
+        updateActionModal({
+          activeStep: 0,
+          message: "Approve this NFT in your wallet so the marketplace can transfer it when sold."
+        });
+        const approveRequest = await buildContractWriteRequest(
+          collectionContract,
+          "approve",
+          [marketplaceAddress, BigInt(data.item.tokenId)],
+          session,
+          bootstrap.config,
+          "marketplace"
         );
+        const approveTx = await session.signer.sendTransaction(approveRequest);
         await approveTx.wait();
       }
 
       setStatus("Creating listing on Reef...");
-      const createTx = await marketplaceContract.createListing(
-        data.item.contractAddress,
-        BigInt(data.item.tokenId),
-        parseEther(normalizedPrice),
-        txOverrides
+      updateActionModal({
+        activeStep: 1,
+        message: `Submitting a ${normalizedPrice} ${bootstrap.config.network.nativeCurrency.symbol} listing on Reef.`
+      });
+      const createRequest = await buildContractWriteRequest(
+        marketplaceContract,
+        "createListing",
+        [data.item.contractAddress, BigInt(data.item.tokenId), parseEther(normalizedPrice)],
+        session,
+        bootstrap.config,
+        "marketplace"
       );
+      const createTx = await session.signer.sendTransaction(createRequest);
       await createTx.wait();
+      updateActionModal({
+        tone: "success",
+        activeStep: 2,
+        message: `${data.item.name} is now listed for ${normalizedPrice} ${bootstrap.config.network.nativeCurrency.symbol}.`
+      });
+      await sleepMs(700);
+      hideActionModal();
       setStatus("Listing created.");
       setListingComposerOpen(false);
       setListingPriceInput("1");
       refreshMarket();
     } catch (error) {
+      updateActionModal({
+        tone: "error",
+        activeStep: 1,
+        message: error instanceof Error ? error.message : "Listing failed",
+        detail: "Your NFT is still safe in your wallet. Adjust the price or retry the listing."
+      });
+      await sleepMs(1100);
+      hideActionModal();
       setStatus(error instanceof Error ? error.message : "Listing failed");
     } finally {
       setListingSubmitting(false);
@@ -4997,7 +6802,13 @@ function ItemModalPage() {
       return;
     }
     try {
-      const txOverrides = getReefTransactionOverrides(bootstrap.config, "marketplace");
+      showActionModal({
+        title: "Cancelling listing",
+        message: "Preparing to remove this item from the Reef marketplace.",
+        detail: data.item.name,
+        steps: ["Confirm cancel", "Cancel listing", "Refresh marketplace"],
+        activeStep: 0
+      });
       const marketplaceAddress =
         bootstrap.config.deployment.marketplace.erc721.address ||
         bootstrap.config.contracts.marketplace.address;
@@ -5011,11 +6822,38 @@ function ItemModalPage() {
         session.signer
       );
       setStatus("Cancelling listing...");
-      const tx = await marketplaceContract.cancelListing(BigInt(data.item.listingId), txOverrides);
+      updateActionModal({
+        activeStep: 1,
+        message: "Transaction submitted. Waiting for Reef to remove the listing."
+      });
+      const cancelRequest = await buildContractWriteRequest(
+        marketplaceContract,
+        "cancelListing",
+        [BigInt(data.item.listingId)],
+        session,
+        bootstrap.config,
+        "marketplace"
+      );
+      const tx = await session.signer.sendTransaction(cancelRequest);
       await tx.wait();
+      updateActionModal({
+        tone: "success",
+        activeStep: 2,
+        message: `${data.item.name} is no longer listed.`
+      });
+      await sleepMs(700);
+      hideActionModal();
       setStatus("Listing cancelled.");
       refreshMarket();
     } catch (error) {
+      updateActionModal({
+        tone: "error",
+        activeStep: 1,
+        message: error instanceof Error ? error.message : "Cancellation failed",
+        detail: "The listing may still be active. Refresh the item page after retrying."
+      });
+      await sleepMs(1100);
+      hideActionModal();
       setStatus(error instanceof Error ? error.message : "Cancellation failed");
     } finally {
       setListingSubmitting(false);
@@ -5042,7 +6880,13 @@ function ItemModalPage() {
       return;
     }
     try {
-      const txOverrides = getReefTransactionOverrides(bootstrap.config, "marketplace");
+      showActionModal({
+        title: "Buying NFT",
+        message: "Confirm the purchase in your wallet to settle this listing on Reef.",
+        detail: `${data.item.name} • ${data.item.currentPriceDisplay}`,
+        steps: ["Confirm purchase", "Settle listing", "Refresh ownership"],
+        activeStep: 0
+      });
       const marketplaceAddress =
         bootstrap.config.deployment.marketplace.erc721.address ||
         bootstrap.config.contracts.marketplace.address;
@@ -5056,14 +6900,38 @@ function ItemModalPage() {
         session.signer
       );
       setStatus("Submitting purchase on Reef...");
-      const tx = await marketplaceContract.buyListing(BigInt(data.item.listingId), {
-        value: BigInt(data.item.currentPriceRaw),
-        ...txOverrides
+      updateActionModal({
+        activeStep: 1,
+        message: "Purchase submitted. Waiting for Reef to settle the listing."
       });
+      const buyRequest = await buildContractWriteRequest(
+        marketplaceContract,
+        "buyListing",
+        [BigInt(data.item.listingId), { value: BigInt(data.item.currentPriceRaw) }],
+        session,
+        bootstrap.config,
+        "marketplace"
+      );
+      const tx = await session.signer.sendTransaction(buyRequest);
       await tx.wait();
+      updateActionModal({
+        tone: "success",
+        activeStep: 2,
+        message: `${data.item.name} is now in your wallet.`
+      });
+      await sleepMs(700);
+      hideActionModal();
       setStatus("Purchase completed.");
       refreshMarket();
     } catch (error) {
+      updateActionModal({
+        tone: "error",
+        activeStep: 1,
+        message: error instanceof Error ? error.message : "Purchase failed",
+        detail: "The listing was not purchased. You can review the item state and try again."
+      });
+      await sleepMs(1100);
+      hideActionModal();
       setStatus(error instanceof Error ? error.message : "Purchase failed");
     } finally {
       setListingSubmitting(false);
@@ -5076,20 +6944,18 @@ function ItemModalPage() {
       {(data) => (
         <div className="modalRouteFrame">
           <div className="itemModal">
-            <div className="itemModalTopBar">
-              <div className="thumbRail">
-                {data.mediaStrip.length > 1 ? (
+            <div className={data.mediaStrip.length > 1 ? "itemModalTopBar" : "itemModalTopBar compact"}>
+              {data.mediaStrip.length > 1 ? (
+                <div className="thumbRail">
                   <button className="thumbNav" type="button" onClick={() => navigate(data.backHref)}><Icon icon="chevron-left" /></button>
-                ) : null}
-                {data.mediaStrip.map((thumb, index) => (
-                  <button key={`${thumb}-${index}`} className={index === 0 ? "thumbButton active" : "thumbButton"} type="button">
-                    <img src={assetUrl(thumb)} alt="" />
-                  </button>
-                ))}
-                {data.mediaStrip.length > 1 ? (
+                  {data.mediaStrip.map((thumb, index) => (
+                    <button key={`${thumb}-${index}`} className={index === 0 ? "thumbButton active" : "thumbButton"} type="button">
+                      <img src={assetUrl(thumb)} alt="" />
+                    </button>
+                  ))}
                   <button className="thumbNav" type="button"><Icon icon="chevron-right" /></button>
-                ) : null}
-              </div>
+                </div>
+              ) : <div />}
               <button className="closeButton" type="button" onClick={() => navigate(data.closeHref)}><Icon icon="close" /></button>
             </div>
 
@@ -5222,7 +7088,15 @@ function ItemModalPage() {
                       <Icon icon="chevron-right" className="accordionChevron" />
                     </div>
                     <div className="traitList">
-                      {data.item.traits.length === 0 ? <p className="panelBody">No traits to display.</p> : null}
+                      {data.item.traits.length === 0 ? (
+                        <AmbientEmptyState
+                          compact
+                          variant="rows"
+                          eyebrow="Traits"
+                          title="No traits to display"
+                          copy="Add metadata attributes during mint and they will appear here."
+                        />
+                      ) : null}
                       {data.item.traits.map((trait) => (
                         <article className="traitPill" key={`${trait.type}-${trait.value}`}>
                           <span>{trait.type}</span>
@@ -5249,7 +7123,15 @@ function ItemModalPage() {
 
                 {activeTab === "Activity" ? (
                   <section className="detailsAccordion itemActivityFeed">
-                    {data.activity.length === 0 ? <p className="panelBody">No activity yet.</p> : null}
+                    {data.activity.length === 0 ? (
+                      <AmbientEmptyState
+                        compact
+                        variant="rows"
+                        eyebrow="Activity"
+                        title="No activity yet"
+                        copy="This item’s mint, listing, sale, and transfer history will appear here."
+                      />
+                    ) : null}
                     {data.activity.map((entry) => (
                       <ItemActivityCard key={entry.id} entry={entry} />
                     ))}
@@ -5333,6 +7215,13 @@ function CreatorPage() {
   const activeTab = params.get("tab") ?? "items";
   const query = params.get("q") ?? "";
   const view = params.get("view") ?? "grid";
+  const statusFilter = params.get("status") ?? "all";
+  const collectionFilter = params.get("collection") ?? "all";
+  const collectionQuery = params.get("collectionQ") ?? "";
+  const profileRailCollapsed = params.get("profileRail") === "collapsed";
+  const statusSectionOpen = params.get("statusOpen") !== "closed";
+  const chainsSectionOpen = params.get("chainsOpen") !== "closed";
+  const collectionsSectionOpen = params.get("collectionsOpen") !== "closed";
 
   if (!creator) {
     return <PageState message="Missing creator slug." />;
@@ -5341,17 +7230,45 @@ function CreatorPage() {
   return (
     <DataState state={state}>
       {(data) => {
-        const isAddressProfile = creator.startsWith("0x");
-        const isOwnProfile = Boolean(isAddressProfile && account && sameAddress(account, creator));
-        const profileLabel = data.profile.name;
-        const profileTag = isAddressProfile
-          ? creator.slice(2, 8).toUpperCase()
-          : data.profile.slug.replace(/^wallet-/, "").slice(0, 6).toUpperCase();
+        const profileData = normalizeProfileResponse(
+          data,
+          bootstrap.config.network.nativeCurrency.symbol
+        );
+        const slugAddressCandidate = profileData.profile.slug.replace(/^wallet-/, "");
+        const derivedProfileAddress = [
+          creator,
+          slugAddressCandidate,
+          profileData.items[0]?.ownerAddress,
+          profileData.items[0]?.creatorAddress,
+          profileData.listings[0]?.ownerAddress,
+          profileData.createdCollections[0]?.creatorSlug
+        ].find((value): value is string => Boolean(value && value.startsWith("0x")));
+        const isOwnProfile = Boolean(derivedProfileAddress && account && sameAddress(account, derivedProfileAddress));
+        const profileLabel = derivedProfileAddress
+          ? `${derivedProfileAddress.slice(0, 6)}...${derivedProfileAddress.slice(-4)}`
+          : profileData.profile.name;
+        const profileTag = derivedProfileAddress
+          ? derivedProfileAddress.slice(2, 8).toUpperCase()
+          : profileData.profile.slug.replace(/^wallet-/, "").slice(0, 6).toUpperCase();
         const normalizedQuery = query.trim().toLowerCase();
+        const normalizedCollectionQuery = collectionQuery.trim().toLowerCase();
         const matchesQuery = (...values: Array<string | undefined>) =>
           !normalizedQuery
             ? true
             : values.some((value) => value?.toLowerCase().includes(normalizedQuery));
+        const matchesCollectionQuery = (...values: Array<string | undefined>) =>
+          !normalizedCollectionQuery
+            ? true
+            : values.some((value) => value?.toLowerCase().includes(normalizedCollectionQuery));
+        const matchesStatus = (item: ItemRecord) =>
+          statusFilter === "all"
+            ? true
+            : statusFilter === "listed"
+              ? item.listed
+              : statusFilter === "hidden"
+                ? false
+                : !item.listed;
+        const matchesCollection = (slug: string) => collectionFilter === "all" || collectionFilter === slug;
         const profileTabs = [
           { key: "galleries", label: "Galleries" },
           { key: "items", label: "Items" },
@@ -5431,25 +7348,27 @@ function CreatorPage() {
         }
         const sortByTokenIdDesc = (entries: ItemRecord[]) =>
           [...entries].sort((left, right) => Number(right.tokenId) - Number(left.tokenId));
-        const visibleGalleries = data.galleries.filter((gallery) =>
+        const visibleGalleries = profileData.galleries.filter((gallery) =>
           matchesQuery(gallery.collectionName, gallery.collectionDescription, gallery.creatorName)
         );
-        const visibleItems = data.items.filter((item) =>
-          matchesQuery(item.name, item.description, item.collectionName)
+        const visibleItems = profileData.items.filter((item) =>
+          matchesQuery(item.name, item.description, item.collectionName) &&
+          matchesStatus(item) &&
+          matchesCollection(item.collectionSlug)
         );
-        const visibleCollections = data.createdCollections.filter((collection) =>
+        const visibleCollections = profileData.createdCollections.filter((collection) =>
           matchesQuery(collection.name, collection.description, collection.creatorName)
         );
-        const visibleTokens = data.tokens.filter((token) =>
+        const visibleTokens = profileData.tokens.filter((token) =>
           matchesQuery(token.name, token.symbol, token.chain)
         );
-        const visibleListings = data.listings.filter((item) =>
-          matchesQuery(item.name, item.description, item.collectionName)
+        const visibleListings = profileData.listings.filter((item) =>
+          matchesQuery(item.name, item.description, item.collectionName) && matchesCollection(item.collectionSlug)
         );
-        const visibleOffers = data.offers.filter((offer) =>
+        const visibleOffers = profileData.offers.filter((offer) =>
           matchesQuery(offer.itemName, offer.collectionName, offer.from, offer.to)
         );
-        const visibleActivity = data.activity.filter((entry) =>
+        const visibleActivity = profileData.activity.filter((entry) =>
           matchesQuery(entry.itemName, entry.collectionName, entry.collectionSlug, entry.from, entry.to)
         );
         const sortedGalleries =
@@ -5457,8 +7376,8 @@ function CreatorPage() {
             ? [...visibleGalleries].sort((left, right) => left.collectionName.localeCompare(right.collectionName))
             : sort === "floor-high"
               ? [...visibleGalleries].sort((left, right) => {
-                  const leftCollection = data.createdCollections.find((collection) => collection.slug === left.collectionSlug);
-                  const rightCollection = data.createdCollections.find((collection) => collection.slug === right.collectionSlug);
+                  const leftCollection = profileData.createdCollections.find((collection) => collection.slug === left.collectionSlug);
+                  const rightCollection = profileData.createdCollections.find((collection) => collection.slug === right.collectionSlug);
                   return BigInt(rightCollection?.floorPriceRaw ?? "0") > BigInt(leftCollection?.floorPriceRaw ?? "0") ? 1 : -1;
                 })
               : [...visibleGalleries].sort(
@@ -5509,9 +7428,9 @@ function CreatorPage() {
               : [...visibleActivity].sort(
                   (left, right) => new Date(right.createdAt ?? 0).getTime() - new Date(left.createdAt ?? 0).getTime()
                 );
-        const usdValue = data.portfolio.totalValueDisplay;
-        const nftPercent = String(data.items.length);
-        const tokenPercent = String(data.tokens.length);
+        const usdValue = profileData.portfolio.totalValueDisplay;
+        const nftPercent = String(profileData.items.length);
+        const tokenPercent = String(profileData.tokens.length);
         const searchPlaceholder =
           activeTab === "created"
             ? "Search collections"
@@ -5532,7 +7451,7 @@ function CreatorPage() {
               : activeTab === "tokens"
                 ? `${sortedTokens.length} TOKENS`
                 : activeTab === "portfolio"
-                  ? `${data.portfolio.itemCount} ITEMS`
+                  ? `${profileData.portfolio.itemCount} ITEMS`
                   : activeTab === "listings"
                     ? `${sortedListings.length} LISTINGS`
                     : activeTab === "offers"
@@ -5542,11 +7461,22 @@ function CreatorPage() {
                         : `${sortedItems.length} ITEMS`;
         const showToolbar = activeTab !== "portfolio";
         const showViewControls = ["galleries", "items", "listings"].includes(activeTab);
+        const showProfileSidebar = activeTab === "items";
+        const filterCollections = profileData.galleries
+          .filter((gallery) => matchesCollectionQuery(gallery.collectionName, gallery.creatorName))
+          .sort((left, right) => left.collectionName.localeCompare(right.collectionName));
+        const itemStatusOptions = [
+          { key: "all", label: "All" },
+          { key: "listed", label: "Listed" },
+          { key: "not-listed", label: "Not Listed" },
+          { key: "hidden", label: "Hidden" }
+        ];
+        const showDefaultToolbar = showToolbar && !showProfileSidebar;
 
         return (
           <div className="darkPage profilePage">
             <ProfileHero
-              profile={data.profile}
+              profile={profileData.profile}
               profileLabel={profileLabel}
               profileTag={profileTag}
               usdValue={usdValue}
@@ -5559,7 +7489,7 @@ function CreatorPage() {
                     type="button"
                     aria-label="Copy address"
                     onClick={() => {
-                      const value = isAddressProfile ? creator : data.profile.slug;
+                      const value = derivedProfileAddress ?? profileData.profile.slug;
                       void copyText(value)
                         .then(() => setStatus("Profile id copied."))
                         .catch((error) => {
@@ -5587,7 +7517,7 @@ function CreatorPage() {
               onSelect={(tab) => updateParams(params, setParams, { tab })}
             />
 
-            {showToolbar ? (
+            {showDefaultToolbar ? (
               <div className="collectionToolbar">
                 <div className="chipRow">
                   <button className="iconChip" type="button" aria-label="Filters">
@@ -5633,7 +7563,181 @@ function CreatorPage() {
               </div>
             ) : null}
 
-            <p className="itemCountLabel">{countLabel}</p>
+            {showProfileSidebar ? (
+              <div className={profileRailCollapsed ? "profileWorkspaceLayout railCollapsed" : "profileWorkspaceLayout"}>
+                {!profileRailCollapsed ? (
+                  <aside className="profileFilterRail">
+                    <section className="profileFilterSection">
+                      <button
+                        className="profileFilterHeadingButton"
+                        type="button"
+                        onClick={() => updateParams(params, setParams, { statusOpen: statusSectionOpen ? "closed" : "open" })}
+                      >
+                        <strong>Status</strong>
+                        <Icon
+                          icon="chevron-right"
+                          className={statusSectionOpen ? "microIcon profileFilterChevron open" : "microIcon profileFilterChevron"}
+                        />
+                      </button>
+                      {statusSectionOpen ? (
+                        <div className="profileFilterSectionBody">
+                          <div className="profileFilterChipGrid">
+                            {itemStatusOptions.map((option) => (
+                              <button
+                                key={option.key}
+                                className={statusFilter === option.key ? "profileFilterChip active" : "profileFilterChip"}
+                                type="button"
+                                onClick={() => updateParams(params, setParams, { status: option.key })}
+                              >
+                                {option.label}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      ) : null}
+                    </section>
+
+                    <section className="profileFilterSection">
+                      <button
+                        className="profileFilterHeadingButton"
+                        type="button"
+                        onClick={() => updateParams(params, setParams, { chainsOpen: chainsSectionOpen ? "closed" : "open" })}
+                      >
+                        <strong>Chains</strong>
+                        <Icon
+                          icon="chevron-right"
+                          className={chainsSectionOpen ? "microIcon profileFilterChevron open" : "microIcon profileFilterChevron"}
+                        />
+                      </button>
+                      {chainsSectionOpen ? (
+                        <div className="profileFilterSectionBody">
+                          <div className="profileFilterChipGrid">
+                            <button className="profileFilterChip active" type="button">
+                              Reef
+                            </button>
+                          </div>
+                        </div>
+                      ) : null}
+                    </section>
+
+                    <section className="profileFilterSection">
+                      <button
+                        className="profileFilterHeadingButton"
+                        type="button"
+                        onClick={() => updateParams(params, setParams, { collectionsOpen: collectionsSectionOpen ? "closed" : "open" })}
+                      >
+                        <strong>Collections</strong>
+                        <Icon
+                          icon="chevron-right"
+                          className={collectionsSectionOpen ? "microIcon profileFilterChevron open" : "microIcon profileFilterChevron"}
+                        />
+                      </button>
+                      {collectionsSectionOpen ? (
+                        <div className="profileFilterSectionBody">
+                          <label className="profileFilterSearch">
+                            <Icon icon="search" />
+                            <input
+                              value={collectionQuery}
+                              onChange={(event) => updateParams(params, setParams, { collectionQ: event.target.value })}
+                              placeholder="Search for collections"
+                            />
+                          </label>
+                          <div className="profileCollectionFilterList">
+                            <button
+                              className={collectionFilter === "all" ? "profileCollectionFilterOption active" : "profileCollectionFilterOption"}
+                              type="button"
+                              onClick={() => updateParams(params, setParams, { collection: "all" })}
+                            >
+                              <div className="profileCollectionFilterMeta">
+                                <strong>All collections</strong>
+                                <span>{profileData.galleries.length} available</span>
+                              </div>
+                            </button>
+                            {filterCollections.map((gallery) => (
+                              <button
+                                key={gallery.id}
+                                className={collectionFilter === gallery.collectionSlug ? "profileCollectionFilterOption active" : "profileCollectionFilterOption"}
+                                type="button"
+                                onClick={() => updateParams(params, setParams, { collection: gallery.collectionSlug })}
+                              >
+                                <img src={assetUrl(gallery.avatarUrl)} alt={gallery.collectionName} />
+                                <div className="profileCollectionFilterMeta">
+                                  <strong>{gallery.collectionName}</strong>
+                                  <span>{gallery.itemCount} items</span>
+                                </div>
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      ) : null}
+                    </section>
+                  </aside>
+                ) : null}
+
+                <div className="profileWorkspaceMain">
+                  <div className="profileWorkspaceToolbar">
+                    <div className="profileWorkspaceToolbarLead">
+                      <button
+                        className="iconChip profileRailToggle"
+                        type="button"
+                        aria-label={profileRailCollapsed ? "Open filters" : "Collapse filters"}
+                        onClick={() => updateParams(params, setParams, { profileRail: profileRailCollapsed ? "open" : "collapsed" })}
+                      >
+                        <Icon icon={profileRailCollapsed ? "chevron-right" : "collapse-left"} />
+                      </button>
+                      <label className="inlineSearch profileInlineSearch">
+                        <Icon icon="search" />
+                        <input
+                          value={query}
+                          onChange={(event) => updateParams(params, setParams, { q: event.target.value })}
+                          placeholder={searchPlaceholder}
+                        />
+                      </label>
+                    </div>
+
+                    <div className="profileWorkspaceTools">
+                      <button className="iconChip" type="button" onClick={cycleSort}>
+                        {sortLabel}
+                        <Icon icon="chevron-right" className="microIcon" />
+                      </button>
+                      <button className="iconChip" type="button" aria-label="Settings">
+                        <Icon icon="settings" />
+                      </button>
+                      <button className={view === "grid" ? "iconChip active" : "iconChip"} type="button" onClick={() => updateParams(params, setParams, { view: "grid" })}>
+                        <Icon icon="view-grid" />
+                      </button>
+                      <button className={view === "columns" ? "iconChip active" : "iconChip"} type="button" onClick={() => updateParams(params, setParams, { view: "columns" })}>
+                        <Icon icon="view-columns" />
+                      </button>
+                      <button className={view === "grid-alt" ? "iconChip active" : "iconChip"} type="button" onClick={() => updateParams(params, setParams, { view: "grid-alt" })}>
+                        <Icon icon="grid" />
+                      </button>
+                      <button className={view === "list" ? "iconChip active" : "iconChip"} type="button" onClick={() => updateParams(params, setParams, { view: "list" })}>
+                        <Icon icon="list" />
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="profileWorkspaceMetaRow">
+                    <span className="profileWorkspaceInventory">
+                      <span className="profileWorkspaceCheckbox" aria-hidden="true" />
+                      <strong>{countLabel}</strong>
+                    </span>
+                  </div>
+
+                  <ProfileItemsTab
+                    items={sortedItems}
+                    view={view}
+                    emptyArtwork={buildProfileEmptyArtwork("items")}
+                    emptyTitle="No items found"
+                    emptyCopy="Discover new collections on OpenSea"
+                    renderGridCard={(item) => <ItemGridCard key={item.id} item={item} />}
+                  />
+                </div>
+              </div>
+            ) : null}
+
+            {!showProfileSidebar ? <p className="itemCountLabel">{countLabel}</p> : null}
 
             {activeTab === "galleries" ? (
               <ProfileGalleriesTab
@@ -5641,17 +7745,6 @@ function CreatorPage() {
                 emptyArtwork={buildProfileEmptyArtwork("items")}
                 isOwnProfile={isOwnProfile}
                 onCreateCollection={() => navigate("/create/collection")}
-              />
-            ) : null}
-
-            {activeTab === "items" ? (
-              <ProfileItemsTab
-                items={sortedItems}
-                view={view}
-                emptyArtwork={buildProfileEmptyArtwork("items")}
-                emptyTitle="No items found"
-                emptyCopy="Discover new collections on OpenSea"
-                renderGridCard={(item) => <ItemGridCard key={item.id} item={item} />}
               />
             ) : null}
 
@@ -5679,9 +7772,9 @@ function CreatorPage() {
 
             {activeTab === "portfolio" ? (
               <ProfilePortfolioTab
-                portfolio={data.portfolio}
-                tokens={data.tokens}
-                galleries={data.galleries}
+                portfolio={profileData.portfolio}
+                tokens={profileData.tokens}
+                galleries={profileData.galleries}
               />
             ) : null}
 
@@ -5723,7 +7816,7 @@ function CreatorPage() {
 function CompactDropRow({ drop }: { drop: DropRecord }) {
   return (
     <article className="compactRow">
-      <img src={assetUrl(drop.coverUrl)} alt={drop.name} />
+      <DropCoverImage drop={drop} />
       <div>
         <strong>{drop.name}</strong>
         <p>{drop.startLabel}</p>
@@ -5733,24 +7826,130 @@ function CompactDropRow({ drop }: { drop: DropRecord }) {
   );
 }
 
-function CompactCollectionRow({
-  collection,
-  highlightChange
+function DiscoverCollectionTableRow({
+  collection
 }: {
   collection: CollectionSummary;
-  highlightChange?: boolean;
 }) {
   return (
-    <NavLink to={`/collection/${collection.slug}`} className="compactRow">
-      <img src={assetUrl(collection.avatarUrl)} alt={collection.name} />
-      <div>
-        <strong>{collection.name}</strong>
-        <p>{collection.creatorName}</p>
+    <NavLink to={`/collection/${collection.slug}`} className="collectionTableRow discoverCollectionsTableRow">
+      <span className="starSlot"><Icon icon="star" /></span>
+      <div className="collectionIdentity discoverCollectionIdentity">
+        <img src={assetUrl(collection.avatarUrl)} alt={collection.name} />
+        <div className="discoverCollectionNameCell">
+          <strong>{collection.name}</strong>
+          {collection.verified ? <OpenSeaBadge className="verifiedBadge small" /> : null}
+        </div>
       </div>
-      <span className={highlightChange && collection.tableMetrics.change.startsWith("-") ? "negative" : highlightChange ? "positive" : ""}>
-        {highlightChange ? collection.tableMetrics.change : collection.tableMetrics.floor}
+      <span>{collection.tableMetrics.floor}</span>
+      <span className={collection.tableMetrics.change.startsWith("-") ? "negative" : "positive"}>
+        {collection.tableMetrics.change}
       </span>
+      <span>{collection.tableMetrics.topOffer}</span>
+      <span>{collection.tableMetrics.volume}</span>
+      <span>{collection.tableMetrics.sales}</span>
+      <span>{collection.tableMetrics.owners}</span>
     </NavLink>
+  );
+}
+
+function DiscoverCollectionCompactRow({
+  collection
+}: {
+  collection: CollectionSummary;
+}) {
+  return (
+    <NavLink to={`/collection/${collection.slug}`} className="compactRow discoverCollectionCompactRow">
+      <img src={assetUrl(collection.avatarUrl)} alt={collection.name} />
+      <div className="discoverCollectionCompactBody">
+        <div className="discoverCollectionCompactTitle">
+          <strong>{collection.name}</strong>
+          {collection.verified ? <OpenSeaBadge className="verifiedBadge small" /> : null}
+        </div>
+        <p>By {collection.creatorName}</p>
+      </div>
+      <div className="discoverCollectionCompactMeta">
+        <span>{collection.tableMetrics.floor}</span>
+        <small>{collection.tableMetrics.owners} owners</small>
+      </div>
+    </NavLink>
+  );
+}
+
+function FeaturedCollectionShelf({
+  collections
+}: {
+  collections: CollectionSummary[];
+}) {
+  const railRef = useRef<HTMLDivElement | null>(null);
+  const [canScrollPrev, setCanScrollPrev] = useState(false);
+  const [canScrollNext, setCanScrollNext] = useState(false);
+
+  useEffect(() => {
+    const rail = railRef.current;
+    if (!rail) {
+      return;
+    }
+
+    const updateControls = () => {
+      const maxScrollLeft = rail.scrollWidth - rail.clientWidth;
+      setCanScrollPrev(rail.scrollLeft > 8);
+      setCanScrollNext(maxScrollLeft - rail.scrollLeft > 8);
+    };
+
+    updateControls();
+    const onScroll = () => updateControls();
+    rail.addEventListener("scroll", onScroll, { passive: true });
+    const resizeObserver = new ResizeObserver(() => updateControls());
+    resizeObserver.observe(rail);
+    window.addEventListener("resize", updateControls);
+
+    return () => {
+      rail.removeEventListener("scroll", onScroll);
+      resizeObserver.disconnect();
+      window.removeEventListener("resize", updateControls);
+    };
+  }, [collections.length]);
+
+  const scrollRail = (direction: -1 | 1) => {
+    const rail = railRef.current;
+    if (!rail) {
+      return;
+    }
+    const firstCard = rail.querySelector<HTMLElement>(".featuredCollectionCard");
+    const amount = firstCard ? firstCard.offsetWidth + 22 : rail.clientWidth * 0.78;
+    rail.scrollBy({
+      left: amount * direction,
+      behavior: "smooth"
+    });
+  };
+
+  return (
+    <div className="featuredCollectionRailShell">
+      <button
+        className="railEdgeButton left"
+        type="button"
+        aria-label="Previous featured collections"
+        onClick={() => scrollRail(-1)}
+        disabled={!canScrollPrev}
+      >
+        <Icon icon="chevron-left" />
+      </button>
+      <div className="featuredCollectionRail" ref={railRef}>
+        {collections.map((collection) => (
+          <FeaturedCollectionCard key={collection.slug} collection={collection} />
+        ))}
+      </div>
+      <button
+        className="railEdgeButton right"
+        type="button"
+        aria-label="Next featured collections"
+        onClick={() => scrollRail(1)}
+        disabled={!canScrollNext}
+      >
+        <Icon icon="chevron-right" />
+      </button>
+    </div>
   );
 }
 
@@ -5768,17 +7967,61 @@ function CompactTokenRow({ token }: { token: TokenRecord }) {
 }
 
 function ActivityMiniRow({ entry }: { entry: ActivityRecord }) {
-  return (
-    <div className="activityMiniRow">
-      <div>
-        <strong>{entry.itemName}</strong>
-        <p>{entry.from} → {entry.to}</p>
+  const href =
+    entry.collectionAddress && entry.itemId
+      ? `/item/reef/${entry.collectionAddress}/${entry.itemId}`
+      : entry.collectionSlug
+        ? `/collection/${entry.collectionSlug}`
+        : null;
+  const valueLabel = entry.priceDisplay === "-" ? formatActivityTypeLabel(entry.type) : entry.priceDisplay;
+  const content = (
+    <>
+      <div className="activityMiniMedia">
+        <img
+          src={assetUrl(entry.imageUrl || placeholderAsset(entry.itemName, "#2081e2"))}
+          alt={entry.itemName}
+          onError={(event) => applyImageFallback(event.currentTarget, entry.itemName, "#2081e2")}
+        />
       </div>
+
+      <div className="activityMiniBody">
+        <div className="activityMiniEyebrow">
+          <span className={`activityMiniTypePill activityType-${entry.type}`}>
+            {formatActivityTypeLabel(entry.type)}
+          </span>
+          <span className="activityMiniCollectionName">
+            {entry.collectionName ?? entry.collectionSlug}
+          </span>
+        </div>
+        <strong>{entry.itemName}</strong>
+        <div className="activityMiniRoute">
+          <span>{entry.from}</span>
+          <span className="activityMiniArrow">→</span>
+          <span>{entry.to}</span>
+        </div>
+      </div>
+
       <div className="activityMiniMeta">
-        <span>{entry.priceDisplay}</span>
+        <span className={`activityMiniValue ${valueLabel === "Mint" ? "isEvent" : ""}`}>
+          {valueLabel}
+        </span>
         <small>{entry.ageLabel}</small>
       </div>
-    </div>
+    </>
+  );
+
+  if (href) {
+    return (
+      <NavLink to={href} className={`activityMiniRow activityMiniCard activityMiniTone-${entry.type}`}>
+        {content}
+      </NavLink>
+    );
+  }
+
+  return (
+    <article className={`activityMiniRow activityMiniCard activityMiniTone-${entry.type}`}>
+      {content}
+    </article>
   );
 }
 
@@ -5889,7 +8132,7 @@ function ItemGridCard({ item }: { item: ItemRecord }) {
 function DropCard({ drop }: { drop: DropRecord }) {
   return (
     <article className="dropCard">
-      <img src={assetUrl(drop.coverUrl)} alt={drop.name} />
+      <DropCoverImage drop={drop} />
       <div className="dropCardBody">
         <span className="metaLabel">{drop.stage}</span>
         <h3>{drop.name}</h3>
@@ -5906,6 +8149,124 @@ function DropCard({ drop }: { drop: DropRecord }) {
         </div>
       </div>
     </article>
+  );
+}
+
+function DropsHeroCarousel({ drops }: { drops: DropRecord[] }) {
+  const [activeIndex, setActiveIndex] = useState(0);
+  const [paused, setPaused] = useState(false);
+  const slides = drops.slice(0, 4).map((drop, index) => ({
+    ...drop,
+    mediaKind: index === 0 ? "video" : "image"
+  }));
+  const activeSlide = slides[activeIndex] ?? null;
+  const carouselStyle = {
+    "--drops-carousel-duration": "3800ms"
+  } as CSSProperties;
+
+  useEffect(() => {
+    if (slides.length <= 1 || paused) {
+      return undefined;
+    }
+
+    const timer = window.setInterval(() => {
+      setActiveIndex((current) => (current + 1) % slides.length);
+    }, 3800);
+
+    return () => window.clearInterval(timer);
+  }, [paused, slides.length]);
+
+  useEffect(() => {
+    if (activeIndex < slides.length) {
+      return;
+    }
+    setActiveIndex(0);
+  }, [activeIndex, slides.length]);
+
+  if (!activeSlide) {
+    return null;
+  }
+
+  return (
+    <section
+      className="dropsHeroCarousel"
+      style={carouselStyle}
+      onMouseEnter={() => setPaused(true)}
+      onMouseLeave={() => setPaused(false)}
+    >
+      {activeSlide.mediaKind === "video" ? (
+        <video
+          key={`${activeSlide.slug}-video`}
+          className="dropsHeroAsset"
+          src={dropsHeroVideoUrl}
+          poster={assetUrl(activeSlide.coverUrl)}
+          autoPlay
+          muted
+          loop
+          playsInline
+        />
+      ) : (
+        <DropCoverImage
+          key={`${activeSlide.slug}-image`}
+          className="dropsHeroAsset"
+          drop={activeSlide}
+        />
+      )}
+      <div className="dropsHeroShade" />
+      <div className="dropsHeroAmbient" />
+
+      <div className="dropsHeroContent">
+        <div className="dropsHeroBadgeRow">
+          <span className={`dropsHeroStage stage-${normalizeFilterValue(activeSlide.stage)}`}>
+            {activeSlide.stage}
+          </span>
+          <span className="dropsHeroBadge">
+            {activeSlide.mediaKind === "video" ? "Featured video drop" : "Featured drop"}
+          </span>
+        </div>
+
+        <div className="dropsHeroFooter">
+          <div className="dropsHeroCopy">
+            <span className="dropsHeroEyebrow">Drop spotlight</span>
+            <h2>{activeSlide.name}</h2>
+            <p>
+              By {activeSlide.creatorName}
+              {activeSlide.startLabel ? ` • ${activeSlide.startLabel}` : ""}
+            </p>
+            <small>{activeSlide.description || "Live and upcoming drops from Reef creators."}</small>
+          </div>
+
+          <div className="dropsHeroMetricGlass">
+            <div className="dropsHeroMetric">
+              <span>Mint Price</span>
+              <strong>{activeSlide.mintPrice}</strong>
+            </div>
+            <div className="dropsHeroMetric">
+              <span>Total Items</span>
+              <strong>{compact(activeSlide.supply)}</strong>
+            </div>
+            <div className="dropsHeroMetric">
+              <span>Status</span>
+              <strong>{activeSlide.stage}</strong>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {slides.length > 1 ? (
+        <div className={paused ? "dropsHeroDots paused" : "dropsHeroDots"}>
+          {slides.map((slide, index) => (
+            <button
+              key={slide.slug}
+              className={index === activeIndex ? "dropsHeroDot active" : "dropsHeroDot"}
+              type="button"
+              aria-label={`Show drop ${slide.name}`}
+              onClick={() => setActiveIndex(index)}
+            />
+          ))}
+        </div>
+      ) : null}
+    </section>
   );
 }
 
@@ -5932,6 +8293,71 @@ function PageState({ message }: { message: string }) {
         <p className="panelBody">{message}</p>
       </section>
     </div>
+  );
+}
+
+function AnalyticsSparklineCard({
+  metric
+}: {
+  metric: { label: string; value: string; points: number[] };
+}) {
+  const numericPoints = (metric.points.length ? metric.points : [0, 0, 0, 0]).map((point) =>
+    Number.isFinite(point) ? point : 0
+  );
+  const width = 100;
+  const height = 64;
+  const topPadding = 6;
+  const bottomPadding = 10;
+  const max = Math.max(...numericPoints, 1);
+  const min = Math.min(...numericPoints, 0);
+  const range = Math.max(max - min, 1);
+  const usableHeight = height - topPadding - bottomPadding;
+  const coordinates = numericPoints.map((point, index) => {
+    const x = numericPoints.length === 1 ? width / 2 : (index / (numericPoints.length - 1)) * width;
+    const y = topPadding + ((max - point) / range) * usableHeight;
+    return {
+      x: Number(x.toFixed(2)),
+      y: Number(y.toFixed(2))
+    };
+  });
+  const polylinePoints = coordinates.map((point) => `${point.x},${point.y}`).join(" ");
+  const areaPath = `M ${coordinates[0]?.x ?? 0} ${height - bottomPadding} ${coordinates
+    .map((point) => `L ${point.x} ${point.y}`)
+    .join(" ")} L ${coordinates[coordinates.length - 1]?.x ?? width} ${height - bottomPadding} Z`;
+  const first = numericPoints[0] ?? 0;
+  const last = numericPoints[numericPoints.length - 1] ?? 0;
+  const delta = last - first;
+  const trendTone = delta > 0 ? "positive" : delta < 0 ? "negative" : "neutral";
+  const trendLabel = delta > 0 ? "Uptrend" : delta < 0 ? "Cooling" : "Stable";
+  const trendValue = delta === 0 ? "Flat" : `${delta > 0 ? "+" : ""}${Math.round(delta)}`;
+  const lastPoint = coordinates[coordinates.length - 1] ?? { x: width, y: height / 2 };
+
+  return (
+    <article className="pagePanel analyticsCard dark">
+      <div className="analyticsCardHeader">
+        <span className="metaLabel">{metric.label}</span>
+        <div className={`analyticsTrend ${trendTone}`}>
+          <span>{trendLabel}</span>
+          <strong>{trendValue}</strong>
+        </div>
+      </div>
+
+      <div className="analyticsCardBody">
+        <strong className="analyticsValue">{metric.value}</strong>
+        <span className="analyticsFootnote">Live collection momentum on Reef</span>
+      </div>
+
+      <div className="analyticsSparkline">
+        <svg viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none" aria-hidden="true">
+          <line className="analyticsSparklineGrid" x1="0" y1="12" x2={width} y2="12" />
+          <line className="analyticsSparklineGrid" x1="0" y1="32" x2={width} y2="32" />
+          <line className="analyticsSparklineGrid" x1="0" y1="52" x2={width} y2="52" />
+          <path className="analyticsSparklineArea" d={areaPath} />
+          <polyline className="analyticsSparklineLine" points={polylinePoints} />
+          <circle className="analyticsSparklineDot" cx={lastPoint.x} cy={lastPoint.y} r="2.6" />
+        </svg>
+      </div>
+    </article>
   );
 }
 
@@ -5965,4 +8391,108 @@ function updateParams(
     }
   }
   setParams(next, { replace: true });
+}
+
+function buildProfileGalleriesFallback(
+  items: ItemRecord[],
+  createdCollections: CollectionSummary[]
+): ProfileGalleryRecord[] {
+  const collectionByContract = new Map(
+    createdCollections.map((collection) => [collection.contractAddress.toLowerCase(), collection] as const)
+  );
+  const grouped = new Map<string, ItemRecord[]>();
+
+  for (const item of items) {
+    const key = item.contractAddress.toLowerCase();
+    const entries = grouped.get(key) ?? [];
+    entries.push(item);
+    grouped.set(key, entries);
+  }
+
+  return Array.from(grouped.entries()).map(([contractAddress, entries]) => {
+    const collection = collectionByContract.get(contractAddress);
+    const lead = entries[0];
+    return {
+      id: collection?.slug ?? contractAddress,
+      collectionSlug: collection?.slug ?? lead.collectionSlug,
+      collectionName: collection?.name ?? lead.collectionName,
+      collectionDescription: collection?.description ?? `${entries.length} items`,
+      contractAddress: collection?.contractAddress ?? lead.contractAddress,
+      creatorName: collection?.creatorName ?? lead.creatorName,
+      avatarUrl: collection?.avatarUrl ?? lead.imageUrl,
+      bannerUrl: collection?.bannerUrl ?? collection?.avatarUrl ?? lead.imageUrl,
+      floorDisplay: collection?.floorDisplay ?? "No listings",
+      listedCount: entries.filter((item) => item.listed).length,
+      itemCount: entries.length,
+      itemsPreview: entries.slice(0, 3)
+    };
+  });
+}
+
+function buildProfilePortfolioFallback(
+  items: ItemRecord[],
+  listings: ItemRecord[],
+  tokens: ProfileTokenHolding[],
+  galleries: ProfileGalleryRecord[],
+  nativeSymbol: string
+): ProfilePortfolioSummary {
+  const listedValueRaw = listings.reduce((sum, item) => sum + BigInt(item.currentPriceRaw || "0"), 0n);
+  const topToken = tokens[0];
+  return {
+    totalValueDisplay: topToken?.valueDisplay ?? formatNativeDisplay(listedValueRaw.toString(), nativeSymbol),
+    tokenValueDisplay: topToken?.valueDisplay ?? `0 ${nativeSymbol}`,
+    nftValueDisplay: formatNativeDisplay(listedValueRaw.toString(), nativeSymbol),
+    listedValueDisplay: formatNativeDisplay(listedValueRaw.toString(), nativeSymbol),
+    collectionCount: galleries.length,
+    itemCount: items.length,
+    listingCount: listings.length,
+    tokenCount: tokens.length,
+    summaryCards: [
+      {
+        label: "Total value",
+        value: topToken?.valueDisplay ?? `0 ${nativeSymbol}`,
+        note: "Live wallet and listing value on Reef."
+      },
+      {
+        label: "Token balance",
+        value: topToken?.balanceDisplay ?? `0 ${nativeSymbol}`,
+        note: `${tokens.length} tracked token holdings on Reef.`
+      },
+      {
+        label: "NFT holdings",
+        value: `${items.length}`,
+        note: `${items.length} items across ${galleries.length} collections.`
+      },
+      {
+        label: "Active listings",
+        value: formatNativeDisplay(listedValueRaw.toString(), nativeSymbol),
+        note: `${listings.length} items currently listed by this wallet.`
+      }
+    ]
+  };
+}
+
+function normalizeProfileResponse(data: ProfileResponse, nativeSymbol: string): ProfileResponse {
+  const createdCollections = Array.isArray(data.createdCollections) ? data.createdCollections : [];
+  const createdItems = Array.isArray(data.createdItems) ? data.createdItems : [];
+  const items = Array.isArray(data.items) ? data.items : createdItems;
+  const tokens = Array.isArray(data.tokens) ? data.tokens : [];
+  const listings = Array.isArray(data.listings) ? data.listings : items.filter((item) => item.listed);
+  const galleries = Array.isArray(data.galleries)
+    ? data.galleries
+    : buildProfileGalleriesFallback(items, createdCollections);
+  const portfolio = data.portfolio ?? buildProfilePortfolioFallback(items, listings, tokens, galleries, nativeSymbol);
+
+  return {
+    ...data,
+    createdCollections,
+    createdItems,
+    items,
+    tokens,
+    listings,
+    galleries,
+    offers: Array.isArray(data.offers) ? data.offers : [],
+    activity: Array.isArray(data.activity) ? data.activity : [],
+    portfolio
+  };
 }
