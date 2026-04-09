@@ -2099,6 +2099,168 @@ button {
   font-size: var(--font-size-caption);
 }
 
+.activityFeedList {
+  display: flex;
+  flex-direction: column;
+}
+
+.activityFeedRow {
+  display: grid;
+  grid-template-columns: 92px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 18px;
+  padding: 16px 0;
+  border-bottom: 1px solid var(--border-soft);
+  text-decoration: none;
+  color: inherit;
+  min-width: 0;
+  transition:
+    background 0.16s ease,
+    box-shadow 0.16s ease;
+}
+
+.activityFeedRow:last-child {
+  border-bottom: none;
+}
+
+.activityFeedRow:hover {
+  background: var(--hover-surface-soft);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.03);
+}
+
+.activityFeedMediaWrap {
+  position: relative;
+  width: 84px;
+  min-width: 84px;
+}
+
+.activityFeedMedia {
+  width: 84px;
+  height: 84px;
+  border-radius: 18px;
+}
+
+.activityFeedRow:hover .activityFeedMedia img {
+  transform: scale(1.04);
+}
+
+.activityFeedEventIcon {
+  position: absolute;
+  right: -6px;
+  bottom: -6px;
+  width: 30px;
+  height: 30px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow:
+    0 12px 24px rgba(0, 0, 0, 0.24),
+    0 0 0 4px #14171a;
+}
+
+.activityFeedEventIcon svg {
+  width: 14px;
+  height: 14px;
+}
+
+.activityFeedBody {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.activityFeedTopline {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.activityFeedEyebrow {
+  min-width: 0;
+  flex: 1;
+}
+
+.activityFeedTokenTag {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  padding: 0 9px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--muted);
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 11px;
+  letter-spacing: 0.05em;
+  white-space: nowrap;
+}
+
+.activityFeedTime {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--font-size-caption);
+  white-space: nowrap;
+}
+
+.activityFeedHeadlineRow {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.activityFeedHeadlineRow strong {
+  display: block;
+  margin: 0;
+  line-height: 1.06;
+}
+
+.activityFeedHeadline {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.activityFeedRoute {
+  gap: 10px;
+}
+
+.activityFeedMeta {
+  min-width: 132px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+  text-align: right;
+}
+
+.activityFeedValue {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 21px;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--text);
+}
+
+.activityFeedValue.isEvent {
+  font-family: inherit;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.activityFeedMeta small {
+  margin: 0;
+  color: var(--muted);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
 .discoverCollectionsSurface {
   padding: 0;
 }
@@ -2137,6 +2299,10 @@ button {
 .discoverDropsSurface .sectionHeader p,
 .discoverCollectionsHeader .sectionHeader p {
   color: rgba(255, 255, 255, 0.58);
+}
+
+.discoverDropsSurface .dropsLaunchEmpty {
+  margin: 14px 18px 18px;
 }
 
 .discoverSectionCollapseButton {
@@ -2448,6 +2614,16 @@ button {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
+.dropGrid > .dropsLaunchEmpty {
+  grid-column: 1 / -1;
+}
+
+.compactRowLink,
+.dropCardLink {
+  text-decoration: none;
+  color: inherit;
+}
+
 .dropsHeroCarousel {
   position: relative;
   min-height: 420px;
@@ -2495,6 +2671,18 @@ button {
   padding: 22px;
 }
 
+.dropsHeroTitleLink {
+  color: inherit;
+  text-decoration: none;
+}
+
+.dropsHeroActions {
+  margin-top: 16px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
 .dropsHeroBadgeRow {
   display: flex;
   align-items: center;
@@ -2521,6 +2709,414 @@ button {
 
 .dropsHeroStage.stage-live {
   color: #9ef0bb;
+}
+
+.dropsLaunchEmpty {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(300px, 0.9fr) minmax(0, 1.1fr);
+  gap: 28px;
+  min-height: 360px;
+  padding: 24px;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 22px;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 12% 18%, rgba(81, 126, 255, 0.16), transparent 28%),
+    radial-gradient(circle at 88% 0%, rgba(255, 198, 118, 0.12), transparent 22%),
+    linear-gradient(135deg, rgba(18, 21, 28, 0.98), rgba(12, 14, 18, 0.98));
+  isolation: isolate;
+}
+
+.dropsLaunchEmpty::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0.03), transparent 24%, transparent 76%, rgba(255, 255, 255, 0.03));
+  pointer-events: none;
+}
+
+.dropsLaunchVisual,
+.dropsLaunchContent {
+  position: relative;
+  z-index: 1;
+}
+
+.dropsLaunchVisual {
+  min-height: 312px;
+  border-radius: 20px;
+  overflow: hidden;
+  background: #0f131c;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+.dropsLaunchPoster,
+.dropsLaunchVisualShade {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.dropsLaunchPoster {
+  object-fit: cover;
+  transform: scale(1.02);
+  filter: saturate(1.08) contrast(1.04);
+}
+
+.dropsLaunchVisualShade {
+  background:
+    linear-gradient(180deg, rgba(6, 8, 12, 0.18) 0%, rgba(6, 8, 12, 0.28) 22%, rgba(6, 8, 12, 0.68) 72%, rgba(6, 8, 12, 0.92) 100%),
+    linear-gradient(90deg, rgba(10, 12, 18, 0.54) 0%, rgba(10, 12, 18, 0.1) 42%, rgba(10, 12, 18, 0.54) 100%);
+}
+
+.dropsLaunchBadgeRow {
+  position: absolute;
+  top: 18px;
+  left: 18px;
+  right: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.dropsLaunchStage,
+.dropsLaunchBadge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 0 12px;
+  border-radius: 999px;
+  background: rgba(14, 18, 24, 0.5);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  color: rgba(255, 255, 255, 0.9);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.dropsLaunchStage {
+  color: #ffd179;
+}
+
+.dropsLaunchPosterCopy {
+  position: absolute;
+  left: 18px;
+  right: 18px;
+  bottom: 112px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.dropsLaunchPosterCopy span,
+.dropsLaunchMetric span,
+.dropsLaunchEyebrow {
+  color: rgba(255, 255, 255, 0.62);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.dropsLaunchPosterCopy strong {
+  color: #f8fafc;
+  font-size: clamp(24px, 3vw, 42px);
+  line-height: 0.96;
+  letter-spacing: -0.04em;
+}
+
+.dropsLaunchPosterCopy small {
+  color: rgba(248, 250, 252, 0.76);
+  font-size: 14px;
+}
+
+.dropsLaunchMetricRow {
+  position: absolute;
+  left: 18px;
+  right: 18px;
+  bottom: 18px;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.dropsLaunchMetric {
+  min-width: 0;
+  padding: 14px 14px 16px;
+  border-radius: 16px;
+  background: rgba(14, 18, 24, 0.42);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.dropsLaunchMetric strong {
+  color: #f8fafc;
+  font-size: 24px;
+  line-height: 1;
+  letter-spacing: -0.04em;
+}
+
+.dropsLaunchContent {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 18px;
+  min-width: 0;
+}
+
+.dropsLaunchContent h3 {
+  margin: 0;
+  max-width: 11ch;
+  color: #f8fafc;
+  font-size: clamp(30px, 3.6vw, 52px);
+  line-height: 0.94;
+  letter-spacing: -0.05em;
+}
+
+.dropsLaunchContent > p {
+  margin: 0;
+  max-width: 58ch;
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 16px;
+  line-height: 1.65;
+}
+
+.dropsLaunchFeatureList {
+  display: grid;
+  gap: 2px;
+}
+
+.dropsLaunchFeature {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr);
+  gap: 14px;
+  align-items: start;
+  padding: 14px 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.dropsLaunchFeature:last-child {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.dropsLaunchFeatureIcon {
+  width: 44px;
+  height: 44px;
+  border-radius: 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.86);
+}
+
+.dropsLaunchFeatureIcon svg {
+  width: 18px;
+  height: 18px;
+}
+
+.dropsLaunchFeature strong,
+.dropsLaunchFeature p {
+  display: block;
+}
+
+.dropsLaunchFeature strong {
+  color: #f8fafc;
+  font-size: 15px;
+  line-height: 1.2;
+}
+
+.dropsLaunchFeature p {
+  margin: 6px 0 0;
+  color: rgba(255, 255, 255, 0.64);
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+.dropsLaunchActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding-top: 4px;
+}
+
+@media (max-width: 1180px) {
+  .dropsLaunchEmpty {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .dropsLaunchContent h3 {
+    max-width: 14ch;
+  }
+}
+
+@media (max-width: 720px) {
+  .discoverDropsSurface .dropsLaunchEmpty {
+    margin: 12px;
+  }
+
+  .dropsLaunchEmpty {
+    padding: 18px;
+    gap: 20px;
+    border-radius: 18px;
+  }
+
+  .dropsLaunchVisual {
+    min-height: 360px;
+  }
+
+  .dropsLaunchBadgeRow,
+  .dropsLaunchMetricRow {
+    left: 14px;
+    right: 14px;
+  }
+
+  .dropsLaunchPosterCopy {
+    left: 14px;
+    right: 14px;
+    bottom: 122px;
+  }
+
+  .dropsLaunchMetricRow {
+    grid-template-columns: 1fr;
+  }
+
+  .dropsLaunchContent h3 {
+    font-size: clamp(28px, 9vw, 40px);
+  }
+
+  .dropsLaunchContent > p,
+  .dropsLaunchFeature p {
+    font-size: 14px;
+  }
+
+  .dropsLaunchActions .actionButton {
+    width: 100%;
+  }
+}
+
+.dropDetailHero {
+  position: relative;
+  min-height: 520px;
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  overflow: hidden;
+  background: #101316;
+  isolation: isolate;
+}
+
+.dropDetailBackdrop {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.dropDetailShade {
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(180deg, rgba(8, 10, 12, 0.2) 0%, rgba(8, 10, 12, 0.44) 30%, rgba(8, 10, 12, 0.86) 78%, rgba(8, 10, 12, 0.96) 100%),
+    linear-gradient(90deg, rgba(8, 10, 12, 0.72) 0%, rgba(8, 10, 12, 0.3) 48%, rgba(8, 10, 12, 0.58) 100%);
+}
+
+.dropDetailContent {
+  position: relative;
+  z-index: 1;
+  min-height: 520px;
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 24px;
+}
+
+.dropDetailTopline,
+.dropDetailFooter,
+.dropDetailBadgeRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.dropDetailCopy {
+  max-width: min(720px, 100%);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.dropDetailCopy h1 {
+  margin: 0;
+  font-size: clamp(42px, 5vw, 72px);
+  line-height: 0.96;
+  letter-spacing: -0.05em;
+  color: #f8fafc;
+}
+
+.dropDetailCopy p,
+.dropDetailCopy small {
+  margin: 0;
+  color: rgba(248, 250, 252, 0.76);
+}
+
+.dropDetailCopy p {
+  font-size: 18px;
+}
+
+.dropDetailCopy small {
+  max-width: 62ch;
+  font-size: 15px;
+  line-height: 1.6;
+}
+
+.dropDetailMetricGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  flex: 1;
+}
+
+.dropDetailMetric {
+  min-width: 0;
+  padding: 16px 18px 18px;
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(15, 18, 21, 0.38);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.dropDetailMetric span {
+  color: rgba(248, 250, 252, 0.64);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.dropDetailMetric strong {
+  color: #f8fafc;
+  font-size: clamp(22px, 3vw, 34px);
+  line-height: 1;
 }
 
 .dropsHeroStage.stage-upcoming {
@@ -3557,6 +4153,616 @@ button {
   margin: 8px 0 0;
   color: var(--muted);
   line-height: 1.65;
+}
+
+.rewardsPage {
+  padding-bottom: 112px;
+}
+
+.rewardsShell {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.rewardsTopTabs {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.rewardsNavTab {
+  min-height: 52px;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.018);
+  color: rgba(255, 255, 255, 0.7);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  font-weight: 700;
+  transition:
+    background 0.18s ease,
+    border-color 0.18s ease,
+    color 0.18s ease,
+    transform 0.18s ease;
+}
+
+.rewardsNavTab svg {
+  width: 16px;
+  height: 16px;
+}
+
+.rewardsNavTab.active {
+  color: #f8fafc;
+  border-color: rgba(255, 255, 255, 0.12);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.015)),
+    rgba(21, 25, 29, 0.98);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+.rewardsLayout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.7fr) minmax(320px, 0.78fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.rewardsMainColumn {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.rewardsCampaignPanel,
+.rewardsBoardPanel,
+.rewardsSidebarCard {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 22px;
+  background:
+    linear-gradient(180deg, rgba(24, 28, 34, 0.96) 0%, rgba(17, 19, 21, 1) 100%);
+}
+
+.rewardsCampaignPanel {
+  min-height: 268px;
+  padding: 22px;
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(280px, 0.82fr);
+  gap: 18px;
+  isolation: isolate;
+}
+
+.rewardsCampaignPanel::before,
+.rewardsCampaignPanel::after {
+  content: "";
+  position: absolute;
+  pointer-events: none;
+}
+
+.rewardsCampaignPanel::before {
+  inset: 0;
+  background:
+    radial-gradient(circle at 18% 18%, rgba(64, 132, 255, 0.18), transparent 30%),
+    radial-gradient(circle at 82% 16%, rgba(77, 125, 255, 0.16), transparent 28%),
+    linear-gradient(135deg, rgba(255, 255, 255, 0.03), transparent 36%);
+}
+
+.rewardsCampaignPanel::after {
+  width: 420px;
+  height: 420px;
+  right: -128px;
+  top: -188px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(32, 129, 226, 0.22), rgba(32, 129, 226, 0));
+}
+
+.rewardsCampaignCopy,
+.rewardsCountdownCard {
+  position: relative;
+  z-index: 1;
+}
+
+.rewardsCampaignCopy {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.rewardsCampaignCopy h1 {
+  margin: 0;
+  font-size: clamp(42px, 4.6vw, 62px);
+  line-height: 0.95;
+  letter-spacing: -0.05em;
+}
+
+.rewardsCampaignCopy p {
+  margin: 0;
+  max-width: 34ch;
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 16px;
+  line-height: 1.6;
+}
+
+.rewardsCampaignActions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.rewardsCountdownCard {
+  align-self: end;
+  padding: 18px;
+  border-radius: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.025);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.rewardsCountdownCard p {
+  margin: 0;
+  color: rgba(255, 255, 255, 0.72);
+  text-align: center;
+  font-size: 15px;
+}
+
+.rewardsCountdownGrid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.rewardsCountdownUnit {
+  padding: 14px 8px 12px;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(16, 20, 24, 0.88);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.rewardsCountdownUnit strong {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 26px;
+  line-height: 1;
+}
+
+.rewardsCountdownUnit span {
+  color: rgba(255, 255, 255, 0.58);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.rewardsBoardGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.02fr) minmax(0, 0.98fr);
+  gap: 16px;
+}
+
+.rewardsBoardPanel {
+  padding: 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.rewardsBoardHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.rewardsBoardHeader.compact h3 {
+  margin-bottom: 6px;
+}
+
+.rewardsBoardHeader h3 {
+  margin: 6px 0 0;
+  font-size: 28px;
+  line-height: 1.02;
+}
+
+.rewardsBoardHeader p {
+  margin: 6px 0 0;
+  max-width: 36ch;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.rewardsStatusPill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 0 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(32, 129, 226, 0.26);
+  background: rgba(32, 129, 226, 0.12);
+  color: #9ac6ff;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.rewardsScoreRow,
+.rewardsSnapshotGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.rewardsScoreCard,
+.rewardsSnapshotCard {
+  padding: 16px 18px 18px;
+  border-radius: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.025);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.rewardsScoreCard span,
+.rewardsSnapshotCard span {
+  color: rgba(255, 255, 255, 0.52);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.rewardsScoreCard strong,
+.rewardsSnapshotCard strong {
+  font-size: 28px;
+  line-height: 1;
+}
+
+.rewardsScoreCard small,
+.rewardsSnapshotCard small {
+  color: var(--muted);
+}
+
+.rewardsProgressPanel {
+  padding: 16px 18px 18px;
+  border-radius: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.025);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.rewardsProgressMeta {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.rewardsProgressMeta strong {
+  font-size: 15px;
+}
+
+.rewardsProgressMeta span {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.rewardsProgressTrack {
+  width: 100%;
+  height: 10px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+
+.rewardsProgressFill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #2081e2 0%, #4f9bff 56%, #8fc6ff 100%);
+}
+
+.rewardsMilestoneList {
+  display: flex;
+  flex-direction: column;
+}
+
+.rewardsMilestoneRow {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 15px 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.rewardsMilestoneRow:first-child {
+  padding-top: 0;
+  border-top: none;
+}
+
+.rewardsMilestoneRow strong {
+  display: block;
+  margin-bottom: 6px;
+}
+
+.rewardsMilestoneRow p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+.rewardsMilestoneMeta {
+  min-width: 92px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+  text-align: right;
+}
+
+.rewardsMilestoneMeta span {
+  font-family: "IBM Plex Mono", monospace;
+  color: var(--text);
+}
+
+.rewardsMilestoneMeta small {
+  color: rgba(255, 255, 255, 0.56);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.rewardsActivityList {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.rewardsActivityRow {
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr) auto;
+  gap: 14px;
+  align-items: center;
+  padding: 14px 16px;
+  border-radius: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.022);
+}
+
+.rewardsActivityIcon {
+  width: 42px;
+  height: 42px;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.rewardsActivityIcon svg {
+  width: 16px;
+  height: 16px;
+}
+
+.rewardsActivityBody {
+  min-width: 0;
+}
+
+.rewardsActivityBody strong {
+  display: block;
+  line-height: 1.12;
+}
+
+.rewardsActivityBody p {
+  margin: 4px 0 0;
+  color: var(--muted);
+}
+
+.rewardsActivityMeta {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+  text-align: right;
+}
+
+.rewardsActivityMeta span {
+  font-family: "IBM Plex Mono", monospace;
+}
+
+.rewardsActivityMeta small {
+  color: rgba(255, 255, 255, 0.54);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.rewardsActivityEmpty {
+  padding: 18px;
+  border-radius: 18px;
+  border: 1px dashed rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.02);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.rewardsActivityEmpty p {
+  margin: 0;
+  color: var(--muted);
+}
+
+.rewardsSidebar {
+  position: relative;
+}
+
+.rewardsSidebarCard {
+  position: sticky;
+  top: 18px;
+  display: flex;
+  flex-direction: column;
+}
+
+.rewardsSidebarHeader {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 22px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  background:
+    radial-gradient(circle at top right, rgba(32, 129, 226, 0.16), transparent 44%),
+    rgba(255, 255, 255, 0.015);
+}
+
+.rewardsSidebarAvatar {
+  width: 74px;
+  height: 74px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.rewardsSidebarIdentity {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.rewardsSidebarIdentity strong {
+  font-size: 20px;
+  line-height: 1.05;
+}
+
+.rewardsSidebarIdentity small {
+  color: rgba(255, 255, 255, 0.54);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.rewardsSidebarStats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  padding: 18px 22px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.rewardsSidebarStats article {
+  min-width: 0;
+}
+
+.rewardsSidebarStats span {
+  display: block;
+  margin-bottom: 8px;
+  color: rgba(255, 255, 255, 0.48);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.rewardsSidebarStats strong {
+  display: block;
+  font-size: 19px;
+  line-height: 1.1;
+}
+
+.rewardsTreasures {
+  padding: 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.rewardsTreasureGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.rewardsTreasure {
+  min-height: 132px;
+  padding: 14px 10px 12px;
+  border-radius: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.018);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  text-align: center;
+}
+
+.rewardsTreasure.unlocked {
+  border-color: rgba(32, 129, 226, 0.24);
+  background:
+    radial-gradient(circle at top, rgba(32, 129, 226, 0.15), transparent 58%),
+    rgba(255, 255, 255, 0.03);
+}
+
+.rewardsTreasureGlyph {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.03);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.rewardsTreasureGlyph svg {
+  width: 18px;
+  height: 18px;
+}
+
+.rewardsTreasure.unlocked .rewardsTreasureGlyph {
+  border-color: rgba(32, 129, 226, 0.24);
+  background: rgba(32, 129, 226, 0.14);
+  color: #9ac6ff;
+}
+
+.rewardsTreasure strong {
+  font-size: 13px;
+  line-height: 1.2;
+}
+
+.rewardsTreasure small {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.rewardsSidebarActions {
+  display: flex;
+  gap: 12px;
+  padding: 0 22px 22px;
+}
+
+.rewardsSidebarButton {
+  flex: 1;
+  justify-content: center;
 }
 
 .dropCreateFormColumn {
@@ -6153,20 +7359,60 @@ button {
 
 .mediaColumn {
   border-right: 1px solid var(--border);
-  padding: 14px 18px;
+  padding: 18px 22px;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: #121416;
+  background:
+    radial-gradient(circle at 50% 18%, rgba(255, 255, 255, 0.04), transparent 24%),
+    linear-gradient(180deg, #13161a, #101317);
   min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.modalArtworkStage {
+  position: relative;
+  width: min(100%, 720px, calc(100vh - 240px));
+  aspect-ratio: 1 / 1;
+  min-width: 0;
+  min-height: 0;
+  padding: clamp(16px, 1.8vw, 24px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 22px;
+  background:
+    radial-gradient(circle at 50% 16%, rgba(255, 255, 255, 0.06), transparent 18%),
+    linear-gradient(180deg, rgba(18, 21, 26, 0.98), rgba(12, 14, 18, 0.98));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.05),
+    0 24px 56px rgba(0, 0, 0, 0.26);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.modalArtworkStage::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(90deg, rgba(255, 255, 255, 0.025), transparent 22%, transparent 78%, rgba(255, 255, 255, 0.025));
+  pointer-events: none;
 }
 
 .modalArtwork {
-  width: min(100%, 640px);
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  max-width: 100%;
   max-height: 100%;
   object-fit: contain;
-  border: 1px solid var(--border);
-  background: #101214;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 18px;
+  background: #0f1216;
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.3);
 }
 
 .listingComposerOverlay {
@@ -8688,6 +9934,15 @@ button {
 }
 
 @media (max-width: 1380px) {
+  .rewardsLayout,
+  .rewardsBoardGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .rewardsSidebarCard {
+    position: static;
+  }
+
   .itemModalBody {
     grid-template-columns: 1fr;
   }
@@ -8698,13 +9953,49 @@ button {
     min-height: min(50vh, 520px);
   }
 
-  .modalArtwork {
-    width: min(100%, 720px);
-    max-height: calc(min(50vh, 520px) - 28px);
+  .modalArtworkStage {
+    width: min(100%, 760px, calc(100vh - 360px));
+    max-width: 100%;
   }
 }
 
 @media (max-width: 900px) {
+  .rewardsTopTabs,
+  .rewardsScoreRow,
+  .rewardsSnapshotGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .rewardsCampaignPanel {
+    grid-template-columns: 1fr;
+  }
+
+  .rewardsCountdownCard {
+    align-self: stretch;
+  }
+
+  .rewardsSidebarStats,
+  .rewardsTreasureGrid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .rewardsMilestoneRow,
+  .rewardsBoardHeader,
+  .rewardsProgressMeta {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .rewardsMilestoneMeta,
+  .rewardsActivityMeta {
+    align-items: flex-start;
+    text-align: left;
+  }
+
+  .rewardsSidebarActions {
+    flex-direction: column;
+  }
+
   .appShell,
   .appShell.sidebarExpanded {
     --rail: var(--rail-collapsed);
@@ -8833,9 +10124,78 @@ button {
   .itemActivityRouteLine {
     width: 100%;
   }
+
+  .activityFeedRow {
+    grid-template-columns: 92px minmax(0, 1fr);
+    align-items: flex-start;
+  }
+
+  .activityFeedTopline {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+
+  .activityFeedMeta {
+    grid-column: 2;
+    align-items: flex-start;
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 10px;
+    min-width: 0;
+    text-align: left;
+  }
+
+  .dropDetailHero,
+  .dropDetailContent {
+    min-height: 0;
+  }
+
+  .dropDetailMetricGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .dropDetailFooter {
+    align-items: stretch;
+    flex-direction: column;
+  }
 }
 
 @media (max-width: 640px) {
+  .rewardsCampaignPanel,
+  .rewardsBoardPanel,
+  .rewardsSidebarHeader,
+  .rewardsTreasures {
+    padding: 18px;
+  }
+
+  .rewardsCampaignCopy h1 {
+    font-size: 34px;
+  }
+
+  .rewardsCampaignCopy p,
+  .rewardsCountdownCard p {
+    font-size: 14px;
+  }
+
+  .rewardsCountdownGrid,
+  .rewardsTreasureGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .rewardsSidebarStats {
+    grid-template-columns: 1fr;
+  }
+
+  .rewardsActivityRow {
+    grid-template-columns: 42px minmax(0, 1fr);
+    align-items: flex-start;
+  }
+
+  .rewardsActivityMeta {
+    grid-column: 2;
+  }
+
   .pageViewport {
     padding-inline: 10px;
   }
@@ -8881,6 +10241,54 @@ button {
     flex-direction: row;
     gap: 10px;
     min-width: 0;
+  }
+
+  .activityFeedRow {
+    grid-template-columns: 72px minmax(0, 1fr);
+    gap: 14px;
+    padding-block: 14px;
+  }
+
+  .activityFeedMediaWrap {
+    width: 72px;
+    min-width: 72px;
+  }
+
+  .activityFeedMedia {
+    width: 72px;
+    height: 72px;
+    border-radius: 16px;
+  }
+
+  .activityFeedEventIcon {
+    right: -4px;
+    bottom: -4px;
+    width: 28px;
+    height: 28px;
+  }
+
+  .activityFeedTokenTag {
+    font-size: 10px;
+  }
+
+  .activityFeedHeadline {
+    width: 100%;
+  }
+
+  .activityFeedValue {
+    font-size: 18px;
+  }
+
+  .dropDetailContent {
+    padding: 18px;
+  }
+
+  .dropDetailCopy h1 {
+    font-size: 34px;
+  }
+
+  .dropDetailCopy p {
+    font-size: 16px;
   }
 
   .adminDropRow {

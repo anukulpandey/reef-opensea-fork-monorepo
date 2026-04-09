@@ -164,6 +164,11 @@ type DropsResponse = {
   drops: DropRecord[];
 };
 
+type DropDetailResponse = {
+  drop: DropRecord;
+  relatedDrops: DropRecord[];
+};
+
 type AdminSessionResponse = {
   wallet: string;
   isAdmin: boolean;
@@ -384,6 +389,115 @@ function placeholderAsset(label: string, accent = "#2081e2") {
   return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
 }
 
+function escapeSvgText(value: string) {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&apos;");
+}
+
+function dropPosterPalette(stage: string) {
+  switch (stage.trim().toLowerCase()) {
+    case "live":
+      return {
+        accent: "#62e5a1",
+        accentSoft: "#1f7a55",
+        accentWarm: "#9ef0bb",
+        label: "LIVE"
+      };
+    case "ended":
+      return {
+        accent: "#f28b82",
+        accentSoft: "#7f1d1d",
+        accentWarm: "#fecaca",
+        label: "ENDED"
+      };
+    case "draft":
+      return {
+        accent: "#9aa7b8",
+        accentSoft: "#334155",
+        accentWarm: "#cbd5e1",
+        label: "DRAFT"
+      };
+    case "upcoming":
+    default:
+      return {
+        accent: "#6ea8ff",
+        accentSoft: "#25457a",
+        accentWarm: "#ffd37a",
+        label: "UPCOMING"
+      };
+  }
+}
+
+function buildDropPosterArtwork(
+  name: string,
+  creatorName: string,
+  stage: string,
+  options?: { showStageBadge?: boolean; showVisibilityLabel?: boolean; showFooterNote?: boolean }
+) {
+  const palette = dropPosterPalette(stage);
+  const seed = Array.from(`${name}:${creatorName}`).reduce(
+    (total, char, index) => total + char.charCodeAt(0) * (index + 1),
+    0
+  );
+  const orbX = 900 + (seed % 180);
+  const orbY = 250 + (seed % 130);
+  const orbRadius = 210 + (seed % 90);
+  const panelShift = 120 + (seed % 80);
+  const stageLabel = escapeSvgText(palette.label);
+  const showStageBadge = options?.showStageBadge ?? true;
+  const showVisibilityLabel = options?.showVisibilityLabel ?? true;
+  const showFooterNote = options?.showFooterNote ?? true;
+  const topBadgeMarkup = showStageBadge
+    ? `<rect x="112" y="112" width="216" height="60" rx="30" fill="rgba(9,12,16,0.42)" stroke="rgba(255,255,255,0.12)" />
+  <text x="148" y="150" font-family="Arial,Helvetica,sans-serif" font-size="24" font-weight="700" letter-spacing="4" fill="${palette.accentWarm}">${stageLabel}</text>`
+    : "";
+  const visibilityMarkup = showVisibilityLabel
+    ? `<text x="1112" y="150" text-anchor="end" font-family="Arial,Helvetica,sans-serif" font-size="22" font-weight="700" letter-spacing="4" fill="rgba(255,255,255,0.72)">REEF DROP</text>`
+    : "";
+  const footerMarkup = showFooterNote
+    ? `<text x="136" y="1248" font-family="Arial,Helvetica,sans-serif" font-size="24" fill="rgba(255,255,255,0.56)">Reef Studio launch poster • Add custom artwork to override.</text>`
+    : "";
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="1400" viewBox="0 0 1400 1400" fill="none">
+  <defs>
+    <linearGradient id="drop-bg" x1="152" y1="88" x2="1220" y2="1312" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#111827" />
+      <stop offset="54%" stop-color="#0f172a" />
+      <stop offset="100%" stop-color="#0b1220" />
+    </linearGradient>
+    <linearGradient id="drop-ribbon" x1="196" y1="392" x2="1124" y2="1088" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="${palette.accent}" stop-opacity="0.94" />
+      <stop offset="100%" stop-color="${palette.accentSoft}" stop-opacity="0.96" />
+    </linearGradient>
+    <radialGradient id="drop-orb" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(1030 286) rotate(90) scale(270)">
+      <stop offset="0%" stop-color="${palette.accentWarm}" stop-opacity="0.86" />
+      <stop offset="100%" stop-color="${palette.accent}" stop-opacity="0" />
+    </radialGradient>
+  </defs>
+  <rect width="1400" height="1400" fill="#0b0f15" />
+  <rect x="56" y="56" width="1288" height="1288" rx="72" fill="url(#drop-bg)" />
+  <rect x="86" y="86" width="1228" height="1228" rx="54" stroke="rgba(255,255,255,0.08)" />
+  <path d="M0 ${960 - panelShift}C244 ${868 - panelShift} 454 ${744 - panelShift} 688 ${528 - panelShift}C888 ${344 - panelShift} 1060 ${256 - panelShift} 1400 ${218 - panelShift}V1400H0V${960 - panelShift}Z" fill="url(#drop-ribbon)" />
+  <circle cx="${orbX}" cy="${orbY}" r="${orbRadius}" fill="url(#drop-orb)" />
+  <circle cx="268" cy="1120" r="184" fill="${palette.accentWarm}" fill-opacity="0.12" />
+  <circle cx="340" cy="340" r="96" fill="rgba(255,255,255,0.04)" />
+  <rect x="136" y="352" width="364" height="220" rx="28" fill="rgba(12,16,22,0.28)" stroke="rgba(255,255,255,0.09)" />
+  <rect x="540" y="438" width="220" height="220" rx="28" fill="rgba(255,255,255,0.04)" />
+  <path d="M114 236H648" stroke="rgba(255,255,255,0.12)" stroke-width="2" />
+  <path d="M138 1148H520" stroke="rgba(255,255,255,0.16)" stroke-width="6" stroke-linecap="round" />
+  <path d="M138 1188H428" stroke="rgba(255,255,255,0.12)" stroke-width="6" stroke-linecap="round" />
+  <path d="M114 1160H1286" stroke="rgba(255,255,255,0.08)" stroke-width="2" />
+  ${topBadgeMarkup}
+  ${visibilityMarkup}
+  <text x="136" y="1044" font-family="Arial,Helvetica,sans-serif" font-size="164" font-weight="700" letter-spacing="-8" fill="rgba(255,255,255,0.12)">LAUNCH</text>
+  ${footerMarkup}
+</svg>`;
+  return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
+}
+
 function creatorCollectionArtworkSource(
   collection?: Pick<CreatorCollectionDraft, "avatarUrl" | "bannerUrl"> | null
 ) {
@@ -408,25 +522,149 @@ function applyImageFallback(target: HTMLImageElement, label: string, accent = "#
   target.src = placeholderAsset(label, accent);
 }
 
+function applyDropImageFallback(
+  target: HTMLImageElement,
+  name: string,
+  creatorName = "Reef Team",
+  stage = "upcoming",
+  options?: { showStageBadge?: boolean; showVisibilityLabel?: boolean; showFooterNote?: boolean }
+) {
+  if (target.dataset.fallbackApplied === "1") {
+    return;
+  }
+  target.dataset.fallbackApplied = "1";
+  target.src = buildDropPosterArtwork(name, creatorName, stage, options);
+}
+
 function DropCoverImage({
   drop,
   className
 }: {
-  drop: Pick<DropRecord, "coverUrl" | "name">;
+  drop: Pick<DropRecord, "coverUrl" | "name" | "creatorName" | "stage">;
   className?: string;
 }) {
   return (
     <img
       className={className}
-      src={assetUrl(drop.coverUrl || placeholderAsset(drop.name, "#2081e2"))}
+      src={assetUrl(drop.coverUrl || buildDropPosterArtwork(drop.name, drop.creatorName, drop.stage))}
       alt={drop.name}
-      onError={(event) => applyImageFallback(event.currentTarget, drop.name, "#2081e2")}
+      onError={(event) => applyDropImageFallback(event.currentTarget, drop.name, drop.creatorName, drop.stage)}
     />
+  );
+}
+
+function DropsLaunchEmptyState({
+  title,
+  copy,
+  primaryLabel,
+  primaryAction,
+  secondaryLabel,
+  secondaryAction,
+  className
+}: {
+  title: string;
+  copy: string;
+  primaryLabel: string;
+  primaryAction: () => void;
+  secondaryLabel?: string;
+  secondaryAction?: () => void;
+  className?: string;
+}) {
+  const previewPoster = buildDropPosterArtwork("Reef Genesis Mint", "Reef Team", "upcoming", {
+    showStageBadge: false,
+    showVisibilityLabel: false,
+    showFooterNote: false
+  });
+
+  return (
+    <section className={["dropsLaunchEmpty", className ?? ""].filter(Boolean).join(" ")}>
+      <div className="dropsLaunchVisual" aria-hidden="true">
+        <img className="dropsLaunchPoster" src={previewPoster} alt="" />
+        <div className="dropsLaunchVisualShade" />
+        <div className="dropsLaunchBadgeRow">
+          <span className="dropsLaunchStage">Upcoming</span>
+          <span className="dropsLaunchBadge">Public Drops</span>
+        </div>
+        <div className="dropsLaunchPosterCopy">
+          <span>Launch preview</span>
+          <strong>Reef Genesis Mint</strong>
+          <small>By Reef Team</small>
+        </div>
+        <div className="dropsLaunchMetricRow">
+          <div className="dropsLaunchMetric">
+            <span>Mint price</span>
+            <strong>0 REEF</strong>
+          </div>
+          <div className="dropsLaunchMetric">
+            <span>Supply</span>
+            <strong>100</strong>
+          </div>
+          <div className="dropsLaunchMetric">
+            <span>Start</span>
+            <strong>TBD</strong>
+          </div>
+        </div>
+      </div>
+
+      <div className="dropsLaunchContent">
+        <span className="dropsLaunchEyebrow">Drops</span>
+        <h3>{title}</h3>
+        <p>{copy}</p>
+
+        <div className="dropsLaunchFeatureList">
+          <div className="dropsLaunchFeature">
+            <span className="dropsLaunchFeatureIcon">
+              <Icon icon="calendar" />
+            </span>
+            <div>
+              <strong>Scheduled launch windows</strong>
+              <p>Upcoming and live stages stay readable the moment a drop is created.</p>
+            </div>
+          </div>
+          <div className="dropsLaunchFeature">
+            <span className="dropsLaunchFeatureIcon">
+              <Icon icon="globe" />
+            </span>
+            <div>
+              <strong>Public-ready presentation</strong>
+              <p>Artwork, price, supply, and start labels are framed like a real storefront launch.</p>
+            </div>
+          </div>
+          <div className="dropsLaunchFeature">
+            <span className="dropsLaunchFeatureIcon">
+              <Icon icon="star" />
+            </span>
+            <div>
+              <strong>Creator-led curation</strong>
+              <p>Once a mint is scheduled, this space becomes the drop spotlight instead of a placeholder grid.</p>
+            </div>
+          </div>
+        </div>
+
+        <div className="dropsLaunchActions">
+          <button className="actionButton primary" type="button" onClick={primaryAction}>
+            {primaryLabel}
+          </button>
+          {secondaryLabel && secondaryAction ? (
+            <button className="actionButton secondary" type="button" onClick={secondaryAction}>
+              {secondaryLabel}
+            </button>
+          ) : null}
+        </div>
+      </div>
+    </section>
   );
 }
 
 function iconPath(icon: string) {
   switch (icon) {
+    case "home":
+      return (
+        <>
+          <path d="M4 11.5 12 5l8 6.5" />
+          <path d="M7 10.5V19h10v-8.5" />
+        </>
+      );
     case "compass":
       return (
         <>
@@ -682,6 +920,35 @@ function compact(value: number) {
   return new Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 1 }).format(value);
 }
 
+function splitCountdown(durationMs: number) {
+  const totalSeconds = Math.max(0, Math.floor(durationMs / 1000));
+  const days = Math.floor(totalSeconds / 86_400);
+  const hours = Math.floor((totalSeconds % 86_400) / 3_600);
+  const minutes = Math.floor((totalSeconds % 3_600) / 60);
+  const seconds = totalSeconds % 60;
+
+  return [
+    { label: "Days", value: String(days).padStart(2, "0") },
+    { label: "Hours", value: String(hours).padStart(2, "0") },
+    { label: "Mins", value: String(minutes).padStart(2, "0") },
+    { label: "Secs", value: String(seconds).padStart(2, "0") }
+  ];
+}
+
+function resolveRewardTier(totalPoints: number) {
+  const tiers = [
+    { min: 1000, name: "Vanguard", fee: "0%" },
+    { min: 600, name: "Creator", fee: "1%" },
+    { min: 250, name: "Collector", fee: "2%" },
+    { min: 0, name: "Explorer", fee: "3%" }
+  ] as const;
+
+  const current = tiers.find((tier) => totalPoints >= tier.min) ?? tiers[tiers.length - 1];
+  const next = [...tiers].reverse().find((tier) => tier.min > current.min && totalPoints < tier.min) ?? null;
+
+  return { current, next };
+}
+
 function formatNativeDisplay(raw: string, symbol: string) {
   if (!raw || raw === "0") {
     return `0 ${symbol}`;
@@ -723,6 +990,13 @@ async function copyText(value: string) {
 
 function sameAddress(left?: string, right?: string) {
   return Boolean(left && right && left.toLowerCase() === right.toLowerCase());
+}
+
+function looksLikeShortWalletLabel(value?: string) {
+  if (!value) {
+    return false;
+  }
+  return /^0x[a-f0-9]{4,}\.\.\.[a-f0-9]{4}$/i.test(value.trim());
 }
 
 function isCreatorCollectionMintable(
@@ -1367,6 +1641,7 @@ export default function App() {
             <Route path="tokens" element={<TokensPage />} />
             <Route path="swap" element={<Navigate to="/support" replace />} />
             <Route path="drops" element={<DropsPage />} />
+            <Route path="drops/:slug" element={<DropPage />} />
             <Route path="activity" element={<ActivityPage />} />
             <Route path="rewards" element={<RewardsPage />} />
             <Route path="studio" element={<StudioPage />} />
@@ -2173,21 +2448,13 @@ function DiscoverPage() {
               <div className="panelSurface discoverDropsSurface">
                 <SectionHeader title="Drops" subtitle="Explore upcoming and live mints" />
                 {data.liveDrops.length === 0 ? (
-                  <AmbientEmptyState
-                    variant="cards"
-                    eyebrow="Drops"
+                  <DropsLaunchEmptyState
                     title="No drops to display"
                     copy="Curated live and upcoming mints will show up here once a drop is scheduled."
-                    actions={
-                      <div className="panelActionRow">
-                        <button className="actionButton secondary" type="button" onClick={() => navigate("/create/drop")}>
-                          Create drop
-                        </button>
-                        <button className="actionButton muted" type="button" onClick={() => navigate("/drops")}>
-                          Open Drops
-                        </button>
-                      </div>
-                    }
+                    primaryLabel="Create drop"
+                    primaryAction={() => navigate("/create/drop")}
+                    secondaryLabel="Open Drops"
+                    secondaryAction={() => navigate("/drops")}
                   />
                 ) : (
                   <div className="compactStack">
@@ -2840,20 +3107,14 @@ function DropsPage() {
             {data.drops.length > 0 ? <DropsHeroCarousel drops={data.drops} /> : null}
             <div className="dropGrid">
               {data.drops.length === 0 ? (
-                <AmbientEmptyState
-                  variant="cards"
-                  eyebrow="Drops"
+                <DropsLaunchEmptyState
+                  className="dropsLaunchEmpty-full"
                   title="No drops to display"
                   copy="Live and upcoming Reef drops will appear here once creators or admins schedule them."
-                  actions={
-                    isAdmin ? (
-                      <div className="panelActionRow">
-                        <button className="actionButton secondary" type="button" onClick={() => navigate("/admin")}>
-                          Manage drops
-                        </button>
-                      </div>
-                    ) : null
-                  }
+                  primaryLabel={isAdmin ? "Manage drops" : "Open Studio"}
+                  primaryAction={() => navigate(isAdmin ? "/admin" : "/studio")}
+                  secondaryLabel={isAdmin ? "Create drop" : undefined}
+                  secondaryAction={isAdmin ? () => navigate("/create/drop") : undefined}
                 />
               ) : null}
               {data.drops.map((drop) => (
@@ -2861,6 +3122,93 @@ function DropsPage() {
               ))}
             </div>
           </section>
+        </div>
+      )}
+    </DataState>
+  );
+}
+
+function DropPage() {
+  const { slug } = useParams();
+  const navigate = useNavigate();
+  const { refreshNonce, isAdmin } = useMarketplace();
+  const state = useRemoteData<DropDetailResponse>(slug ? `/dataset/drop/${slug}` : null, refreshNonce);
+
+  if (!slug) {
+    return <PageState message="Missing drop slug." />;
+  }
+
+  return (
+    <DataState state={state}>
+      {(data) => (
+        <div className="darkPage">
+          <section className="dropDetailHero">
+            <DropCoverImage className="dropDetailBackdrop" drop={data.drop} />
+            <div className="dropDetailShade" />
+            <div className="dropDetailContent">
+              <div className="dropDetailTopline">
+                <button className="chip" type="button" onClick={() => navigate("/drops")}>
+                  <Icon className="chipIcon" icon="chevron-left" />
+                  All drops
+                </button>
+                <div className="dropDetailBadgeRow">
+                  <span className={`dropsHeroStage stage-${normalizeFilterValue(data.drop.stage)}`}>
+                    {data.drop.stage}
+                  </span>
+                  <span className="dropsHeroBadge">{data.drop.startLabel || "Reef drop"}</span>
+                </div>
+              </div>
+
+              <div className="dropDetailCopy">
+                <span className="dropsHeroEyebrow">Drop page</span>
+                <h1>{data.drop.name}</h1>
+                <p>
+                  By {data.drop.creatorName}
+                  {data.drop.startLabel ? ` • ${data.drop.startLabel}` : ""}
+                </p>
+                <small>{data.drop.description || "This drop is live on Reef."}</small>
+              </div>
+
+              <div className="dropDetailFooter">
+                <div className="dropDetailMetricGrid">
+                  <div className="dropDetailMetric">
+                    <span>Mint Price</span>
+                    <strong>{data.drop.mintPrice}</strong>
+                  </div>
+                  <div className="dropDetailMetric">
+                    <span>Total Items</span>
+                    <strong>{compact(data.drop.supply)}</strong>
+                  </div>
+                  <div className="dropDetailMetric">
+                    <span>Status</span>
+                    <strong>{data.drop.stage}</strong>
+                  </div>
+                </div>
+
+                <div className="panelActionRow">
+                  <button className="actionButton secondary" type="button" onClick={() => navigate("/drops")}>
+                    Back to drops
+                  </button>
+                  {isAdmin ? (
+                    <button className="actionButton muted" type="button" onClick={() => navigate("/admin")}>
+                      Manage drops
+                    </button>
+                  ) : null}
+                </div>
+              </div>
+            </div>
+          </section>
+
+          {data.relatedDrops.length ? (
+            <section className="pagePanel">
+              <SectionHeader title="More Drops" subtitle="Keep exploring live and upcoming Reef releases." />
+              <div className="dropGrid">
+                {data.relatedDrops.map((drop) => (
+                  <DropCard key={drop.slug} drop={drop} />
+                ))}
+              </div>
+            </section>
+          ) : null}
         </div>
       )}
     </DataState>
@@ -3232,7 +3580,7 @@ function ActivityPage() {
                 ))}
               </div>
             </div>
-            <div className="activityTable">
+            <div className="activityFeedList">
               {data.activities.length === 0 ? (
                 <AmbientEmptyState
                   variant="rows"
@@ -3241,19 +3589,7 @@ function ActivityPage() {
                   copy="Once mints, listings, transfers, and sales happen on Reef, they will stream into this feed."
                 />
               ) : null}
-              {data.activities.map((entry) => (
-                <div className="activityTableRow" key={entry.id}>
-                  <div>
-                    <strong>{entry.itemName}</strong>
-                    <p>{entry.collectionSlug}</p>
-                  </div>
-                  <span>{entry.type}</span>
-                  <span>{entry.from}</span>
-                  <span>{entry.to}</span>
-                  <span>{entry.priceDisplay}</span>
-                  <span>{entry.ageLabel}</span>
-                </div>
-              ))}
+              {data.activities.map((entry) => <ActivityFeedRow entry={entry} key={entry.id} />)}
             </div>
           </section>
         </div>
@@ -3263,8 +3599,22 @@ function ActivityPage() {
 }
 
 function RewardsPage() {
-  const { account, connectWallet, isAdmin, bootstrap, refreshNonce } = useMarketplace();
+  const { account, connectWallet, currentUser, isAdmin, bootstrap, refreshNonce } = useMarketplace();
+  const navigate = useNavigate();
+  const [activeTab, setActiveTab] = useState<"home" | "pool" | "activity">("home");
+  const [rewardWindowEndsAt] = useState(() => {
+    const anchor = bootstrap.recentActivity[0]?.createdAt
+      ? new Date(bootstrap.recentActivity[0].createdAt).getTime()
+      : Date.now();
+    return anchor + 52 * 24 * 60 * 60 * 1000 + 6 * 60 * 60 * 1000 + 5 * 60 * 1000 + 3 * 1000;
+  });
+  const [now, setNow] = useState(() => Date.now());
   const state = useRemoteData<ProfileResponse>(account ? `/dataset/profile/${account}` : null, refreshNonce);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   if (!account) {
     return (
@@ -3286,12 +3636,80 @@ function RewardsPage() {
   return (
     <DataState state={state}>
       {(profile) => {
+        const accountSuffix = account.slice(-4).toLowerCase();
+        const relatedActivity = (profile.activity.length ? profile.activity : bootstrap.recentActivity.filter((entry) =>
+          sameAddress(entry.fromAddress, account) ||
+          sameAddress(entry.toAddress, account) ||
+          entry.from.toLowerCase().includes(accountSuffix) ||
+          entry.to.toLowerCase().includes(accountSuffix)
+        )).slice(0, 5);
         const totalPoints =
           profile.createdItems.length * 50 +
           profile.createdCollections.length * 200 +
           bootstrap.recentActivity.filter((entry) => entry.to.toLowerCase().includes(account.slice(-4).toLowerCase())).length * 25 +
           (isAdmin ? 500 : 0);
-        const tasks = [
+        const { current: currentTier, next: nextTier } = resolveRewardTier(totalPoints);
+        const countdown = splitCountdown(rewardWindowEndsAt - now);
+        const rewardRank = isAdmin ? "Reef Team" : totalPoints >= 1000 ? "Vanguard" : totalPoints >= 600 ? "Creator" : totalPoints >= 250 ? "Collector" : "Explorer";
+        const streakDays = Math.max(1, profile.createdItems.length + profile.createdCollections.length + relatedActivity.length);
+        const nextTierTarget = nextTier?.min ?? currentTier.min;
+        const currentTierFloor = currentTier.min;
+        const progressToNextTier = nextTierTarget > currentTierFloor
+          ? Math.max(0, Math.min(100, ((totalPoints - currentTierFloor) / (nextTierTarget - currentTierFloor)) * 100))
+          : 100;
+        const walletLabel = currentUser?.displayName?.trim() || profile.profile.name || shortenAddress(account);
+        const walletSubline = account.slice(2, 8).toUpperCase();
+        const heroTitle =
+          activeTab === "pool"
+            ? "Reward Pool Status"
+            : activeTab === "activity"
+              ? "Reward Activity Window"
+              : `${currentTier.fee} Token Trading Fees`;
+        const heroCopy =
+          activeTab === "pool"
+            ? "Every mint, listing, and collection creation upgrades your wallet tier and pushes the next fee unlock closer."
+            : activeTab === "activity"
+              ? "Recent wallet actions feed your rewards window. Keep creating and trading on Reef to hold the best fee tier."
+              : "Trade across the marketplace with your current reward tier. The fee window refreshes as your wallet keeps creating, listing, and collecting on Reef.";
+        const treasures = [
+          {
+            title: "Wallet linked",
+            icon: "profile",
+            unlocked: true,
+            detail: "Connected"
+          },
+          {
+            title: "Collector",
+            icon: "spark",
+            unlocked: profile.items.length + profile.createdItems.length > 0,
+            detail: `${profile.items.length + profile.createdItems.length} NFTs`
+          },
+          {
+            title: "Creator",
+            icon: "grid",
+            unlocked: profile.createdCollections.length > 0,
+            detail: `${profile.createdCollections.length} collections`
+          },
+          {
+            title: "Market maker",
+            icon: "list",
+            unlocked: profile.listings.length > 0,
+            detail: `${profile.listings.length} listings`
+          },
+          {
+            title: "Active trader",
+            icon: "activity",
+            unlocked: relatedActivity.length >= 2,
+            detail: `${relatedActivity.length} actions`
+          },
+          {
+            title: "Team vault",
+            icon: "wallet",
+            unlocked: isAdmin,
+            detail: isAdmin ? "Enabled" : "Locked"
+          }
+        ];
+        const milestones = [
           {
             title: "Profile connected",
             description: "Your Reef wallet is connected to the marketplace.",
@@ -3302,7 +3720,7 @@ function RewardsPage() {
             title: "Own an NFT",
             description: "Hold at least one NFT indexed on Reef.",
             points: "100 pts",
-            state: profile.createdItems.length > 0 ? "Complete" : "Pending"
+            state: profile.items.length + profile.createdItems.length > 0 ? "Complete" : "Pending"
           },
           {
             title: "Create a collection",
@@ -3317,28 +3735,247 @@ function RewardsPage() {
             state: isAdmin ? "Available" : "Team only"
           }
         ];
+        const snapshotCards = [
+          {
+            label: "Points",
+            value: compact(totalPoints),
+            note: currentTier.name
+          },
+          {
+            label: "Treasures",
+            value: `${treasures.filter((treasure) => treasure.unlocked).length}/6`,
+            note: "Unlocked"
+          },
+          {
+            label: "Streak",
+            value: `${streakDays}d`,
+            note: "Active"
+          }
+        ];
+        const heroPrimaryAction =
+          activeTab === "activity"
+            ? { label: "Open profile", onClick: () => navigate(`/profile/${account}?tab=activity`) }
+            : { label: "Explore tokens", onClick: () => navigate("/tokens") };
+        const heroSecondaryAction =
+          activeTab === "pool"
+            ? { label: "How it works", onClick: () => navigate("/support") }
+            : { label: "My activity", onClick: () => setActiveTab("activity") };
+        const rewardTabs = [
+          { id: "home" as const, label: "Home", icon: "home" },
+          { id: "pool" as const, label: "Reward Pool", icon: "spark" },
+          { id: "activity" as const, label: "My Activity", icon: "activity" }
+        ];
 
         return (
-        <div className="darkPage">
-          <section className="pagePanel">
-            <SectionHeader title="Rewards" subtitle="Track wallet progress, creator milestones, and Reef team actions." />
-            <div className="metricsRow">
-              <MetricPanel label="Total points" value={compact(totalPoints)} />
-              <MetricPanel label="Rank" value={isAdmin ? "Reef Team" : profile.createdItems.length > 0 ? "Collector" : "Explorer"} />
-              <MetricPanel label="Streak" value={`${Math.max(1, profile.createdItems.length + profile.createdCollections.length)}d`} />
-            </div>
-            <div className="taskGrid">
-              {tasks.map((task) => (
-                <article className="taskCard dark" key={task.title}>
-                  <span className="metaLabel">{task.state}</span>
-                  <h3>{task.title}</h3>
-                  <p>{task.description}</p>
-                  <strong>{task.points}</strong>
-                </article>
-              ))}
-            </div>
-          </section>
-        </div>
+          <div className="darkPage rewardsPage">
+            <section className="rewardsShell">
+              <div className="rewardsTopTabs">
+                {rewardTabs.map((tab) => (
+                  <button
+                    key={tab.id}
+                    className={activeTab === tab.id ? "rewardsNavTab active" : "rewardsNavTab"}
+                    type="button"
+                    onClick={() => setActiveTab(tab.id)}
+                  >
+                    <Icon icon={tab.icon} />
+                    <span>{tab.label}</span>
+                  </button>
+                ))}
+              </div>
+
+              <div className="rewardsLayout">
+                <div className="rewardsMainColumn">
+                  <article className="rewardsCampaignPanel">
+                    <div className="rewardsCampaignCopy">
+                      <span className="metaLabel">Rewards season</span>
+                      <h1>{heroTitle}</h1>
+                      <p>{heroCopy}</p>
+                      <div className="rewardsCampaignActions">
+                        <button className="primaryCta" type="button" onClick={heroPrimaryAction.onClick}>
+                          {heroPrimaryAction.label}
+                        </button>
+                        <button className="chip" type="button" onClick={heroSecondaryAction.onClick}>
+                          {heroSecondaryAction.label}
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="rewardsCountdownCard">
+                      <p>Trade with {currentTier.fee} fees for</p>
+                      <div className="rewardsCountdownGrid">
+                        {countdown.map((segment) => (
+                          <article className="rewardsCountdownUnit" key={segment.label}>
+                            <strong>{segment.value}</strong>
+                            <span>{segment.label}</span>
+                          </article>
+                        ))}
+                      </div>
+                    </div>
+                  </article>
+
+                  <div className="rewardsBoardGrid">
+                    <article className="rewardsBoardPanel">
+                      <div className="rewardsBoardHeader">
+                        <div>
+                          <span className="metaLabel">Reward pool</span>
+                          <h3>Tier progression</h3>
+                        </div>
+                        <span className="rewardsStatusPill">{currentTier.name}</span>
+                      </div>
+
+                      <div className="rewardsScoreRow">
+                        {snapshotCards.map((card) => (
+                          <article className="rewardsScoreCard" key={card.label}>
+                            <span>{card.label}</span>
+                            <strong>{card.value}</strong>
+                            <small>{card.note}</small>
+                          </article>
+                        ))}
+                      </div>
+
+                      <div className="rewardsProgressPanel">
+                        <div className="rewardsProgressMeta">
+                          <strong>{nextTier ? `${nextTier.min - totalPoints} pts to ${nextTier.name}` : "Top tier active"}</strong>
+                          <span>{nextTier ? `${compact(totalPoints)} / ${compact(nextTier.min)} pts` : `${currentTier.fee} fees unlocked`}</span>
+                        </div>
+                        <div className="rewardsProgressTrack" aria-hidden="true">
+                          <span className="rewardsProgressFill" style={{ width: `${progressToNextTier}%` }} />
+                        </div>
+                      </div>
+
+                      <div className="rewardsMilestoneList">
+                        {milestones.map((task) => (
+                          <article className="rewardsMilestoneRow" key={task.title}>
+                            <div>
+                              <strong>{task.title}</strong>
+                              <p>{task.description}</p>
+                            </div>
+                            <div className="rewardsMilestoneMeta">
+                              <span>{task.points}</span>
+                              <small>{task.state}</small>
+                            </div>
+                          </article>
+                        ))}
+                      </div>
+                    </article>
+
+                    <article className="rewardsBoardPanel">
+                      <div className="rewardsBoardHeader">
+                        <div>
+                          <span className="metaLabel">My activity</span>
+                          <h3>Recent reward actions</h3>
+                        </div>
+                        <button className="chip" type="button" onClick={() => navigate(`/profile/${account}?tab=activity`)}>
+                          Open feed
+                        </button>
+                      </div>
+
+                      {relatedActivity.length ? (
+                        <div className="rewardsActivityList">
+                          {relatedActivity.map((entry) => (
+                            <article className="rewardsActivityRow" key={entry.id}>
+                              <span className={`rewardsActivityIcon activityType-${entry.type}`}>
+                                <Icon icon={activityIcon(entry.type)} />
+                              </span>
+                              <div className="rewardsActivityBody">
+                                <strong>{formatActivityHeadline(entry)}</strong>
+                                <p>{entry.itemName}</p>
+                              </div>
+                              <div className="rewardsActivityMeta">
+                                <span>{entry.priceDisplay}</span>
+                                <small>{entry.ageLabel}</small>
+                              </div>
+                            </article>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="rewardsActivityEmpty">
+                          <span className="profileActivityEmptyBadge">No reward activity yet</span>
+                          <p>Mint, list, or create a collection to start filling your reward history.</p>
+                        </div>
+                      )}
+
+                      <div className="rewardsSnapshotGrid">
+                        {profile.portfolio.summaryCards.slice(0, 3).map((card) => (
+                          <article className="rewardsSnapshotCard" key={card.label}>
+                            <span>{card.label}</span>
+                            <strong>{card.value}</strong>
+                            <small>{card.note}</small>
+                          </article>
+                        ))}
+                      </div>
+                    </article>
+                  </div>
+                </div>
+
+                <aside className="rewardsSidebar">
+                  <article className="rewardsSidebarCard">
+                    <div className="rewardsSidebarHeader">
+                      <UserAvatar
+                        address={account}
+                        className="userAvatar rewardsSidebarAvatar"
+                        displayName={currentUser?.displayName ?? profile.profile.name}
+                        src={currentUser?.avatarUri || profile.profile.avatarUrl}
+                      />
+                      <div className="rewardsSidebarIdentity">
+                        <strong>{walletLabel}</strong>
+                        <small>{walletSubline}</small>
+                      </div>
+                    </div>
+
+                    <div className="rewardsSidebarStats">
+                      <article>
+                        <span>Rank</span>
+                        <strong>{rewardRank}</strong>
+                      </article>
+                      <article>
+                        <span>Points</span>
+                        <strong>{compact(totalPoints)}</strong>
+                      </article>
+                      <article>
+                        <span>Window</span>
+                        <strong>{currentTier.fee}</strong>
+                      </article>
+                    </div>
+
+                    <div className="rewardsTreasures">
+                      <div className="rewardsBoardHeader compact">
+                        <div>
+                          <h3>Treasures</h3>
+                          <p>Milestones tied to this wallet and its creator activity on Reef.</p>
+                        </div>
+                      </div>
+
+                      <div className="rewardsTreasureGrid">
+                        {treasures.map((treasure) => (
+                          <article
+                            className={treasure.unlocked ? "rewardsTreasure unlocked" : "rewardsTreasure"}
+                            key={treasure.title}
+                            title={`${treasure.title} · ${treasure.detail}`}
+                          >
+                            <span className="rewardsTreasureGlyph">
+                              <Icon icon={treasure.icon} />
+                            </span>
+                            <strong>{treasure.title}</strong>
+                            <small>{treasure.detail}</small>
+                          </article>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="rewardsSidebarActions">
+                      <button className="chip rewardsSidebarButton" type="button" onClick={() => navigate("/support")}>
+                        How It Works
+                      </button>
+                      <button className="primaryCta rewardsSidebarButton" type="button" onClick={() => navigate(`/profile/${account}`)}>
+                        Open Profile
+                      </button>
+                    </div>
+                  </article>
+                </aside>
+              </div>
+            </section>
+          </div>
         );
       }}
     </DataState>
@@ -5927,7 +6564,14 @@ function CreateDropPage() {
   const previewDescription =
     form.description.trim() || "Set the cover, timing, supply, and price. The public drops card updates live as you shape the launch.";
   const previewStage = form.stage.charAt(0).toUpperCase() + form.stage.slice(1);
-  const previewCover = assetUrl(form.coverUrl.trim() || placeholderAsset(previewTitle, "#2081e2"));
+  const previewCover = assetUrl(
+    form.coverUrl.trim() ||
+      buildDropPosterArtwork(previewTitle, previewCreator, form.stage, {
+        showStageBadge: false,
+        showVisibilityLabel: false,
+        showFooterNote: false
+      })
+  );
 
   if (!account) {
     return (
@@ -6052,7 +6696,13 @@ function CreateDropPage() {
                 className="dropPreviewImage"
                 src={previewCover}
                 alt={previewTitle}
-                onError={(event) => applyImageFallback(event.currentTarget, previewTitle, "#2081e2")}
+                onError={(event) =>
+                  applyDropImageFallback(event.currentTarget, previewTitle, previewCreator, form.stage, {
+                    showStageBadge: false,
+                    showVisibilityLabel: false,
+                    showFooterNote: false
+                  })
+                }
               />
               <div className="dropPreviewOverlay">
                 <div className="dropPreviewTop">
@@ -6961,7 +7611,9 @@ function ItemModalPage() {
 
             <div className="itemModalBody">
               <div className="mediaColumn">
-                <img className="modalArtwork" src={assetUrl(data.item.imageUrl)} alt={data.item.name} />
+                <div className="modalArtworkStage">
+                  <img className="modalArtwork" src={assetUrl(data.item.imageUrl)} alt={data.item.name} />
+                </div>
               </div>
 
               <div className="detailsColumn">
@@ -7210,7 +7862,7 @@ function CreatorPage() {
   const { creator } = useParams();
   const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
-  const { refreshNonce, account, bootstrap, setStatus } = useMarketplace();
+  const { refreshNonce, account, bootstrap, setStatus, currentUser } = useMarketplace();
   const state = useRemoteData<ProfileResponse>(creator ? `/dataset/profile/${creator}` : null, refreshNonce);
   const activeTab = params.get("tab") ?? "items";
   const query = params.get("q") ?? "";
@@ -7244,12 +7896,16 @@ function CreatorPage() {
           profileData.createdCollections[0]?.creatorSlug
         ].find((value): value is string => Boolean(value && value.startsWith("0x")));
         const isOwnProfile = Boolean(derivedProfileAddress && account && sameAddress(account, derivedProfileAddress));
-        const profileLabel = derivedProfileAddress
-          ? `${derivedProfileAddress.slice(0, 6)}...${derivedProfileAddress.slice(-4)}`
-          : profileData.profile.name;
-        const profileTag = derivedProfileAddress
-          ? derivedProfileAddress.slice(2, 8).toUpperCase()
+        const addressLabel = derivedProfileAddress
+          ? shortenAddress(derivedProfileAddress)
           : profileData.profile.slug.replace(/^wallet-/, "").slice(0, 6).toUpperCase();
+        const fetchedProfileName = profileData.profile.name?.trim() || "";
+        const ownProfileName = isOwnProfile ? currentUser?.displayName?.trim() || "" : "";
+        const preferredProfileName = [fetchedProfileName, ownProfileName].find(
+          (value) => Boolean(value && !looksLikeShortWalletLabel(value))
+        );
+        const profileLabel = preferredProfileName || addressLabel;
+        const profileTag = addressLabel;
         const normalizedQuery = query.trim().toLowerCase();
         const normalizedCollectionQuery = collectionQuery.trim().toLowerCase();
         const matchesQuery = (...values: Array<string | undefined>) =>
@@ -7815,14 +8471,14 @@ function CreatorPage() {
 
 function CompactDropRow({ drop }: { drop: DropRecord }) {
   return (
-    <article className="compactRow">
+    <NavLink className="compactRow compactRowLink" to={`/drops/${drop.slug}`}>
       <DropCoverImage drop={drop} />
       <div>
         <strong>{drop.name}</strong>
         <p>{drop.startLabel}</p>
       </div>
       <span>{drop.mintPrice}</span>
-    </article>
+    </NavLink>
   );
 }
 
@@ -7966,13 +8622,81 @@ function CompactTokenRow({ token }: { token: TokenRecord }) {
   );
 }
 
+function activityEntryHref(entry: ActivityRecord) {
+  return entry.collectionAddress && entry.itemId
+    ? `/item/reef/${entry.collectionAddress}/${entry.itemId}`
+    : entry.collectionSlug
+      ? `/collection/${entry.collectionSlug}`
+      : null;
+}
+
+function ActivityFeedRow({ entry }: { entry: ActivityRecord }) {
+  const href = activityEntryHref(entry);
+  const valueLabel = entry.priceDisplay === "-" ? formatActivityTypeLabel(entry.type) : entry.priceDisplay;
+  const showValue = entry.priceDisplay !== "-";
+  const collectionLabel = entry.collectionName ?? entry.collectionSlug ?? "Reef Collection";
+  const tokenLabel = entry.itemId ? `Token #${entry.itemId}` : "NFT";
+  const content = (
+    <>
+      <div className="activityFeedMediaWrap">
+        <div className="activityMiniMedia activityFeedMedia">
+          <img
+            src={assetUrl(entry.imageUrl || placeholderAsset(entry.itemName, "#2081e2"))}
+            alt={entry.itemName}
+            onError={(event) => applyImageFallback(event.currentTarget, entry.itemName, "#2081e2")}
+          />
+        </div>
+        <span className={`activityFeedEventIcon activityType-${entry.type}`} aria-hidden="true">
+          <Icon icon={activityIcon(entry.type)} />
+        </span>
+      </div>
+
+      <div className="activityFeedBody">
+        <div className="activityFeedTopline">
+          <div className="activityMiniEyebrow activityFeedEyebrow">
+            <span className={`activityMiniTypePill activityType-${entry.type}`}>
+              {formatActivityTypeLabel(entry.type)}
+            </span>
+            <span className="activityMiniCollectionName">{collectionLabel}</span>
+            <span className="activityFeedTokenTag">{tokenLabel}</span>
+          </div>
+          <small className="activityFeedTime">{entry.ageLabel}</small>
+        </div>
+        <div className="activityFeedHeadlineRow">
+          <strong>{entry.itemName}</strong>
+          <span className="activityFeedHeadline">{formatActivityHeadline(entry)}</span>
+        </div>
+        <div className="activityMiniRoute activityFeedRoute">
+          <span>{entry.from}</span>
+          <span className="activityMiniArrow">→</span>
+          <span>{entry.to}</span>
+        </div>
+      </div>
+
+      <div className="activityFeedMeta">
+        <span className={`activityFeedValue ${showValue ? "" : "isEvent"}`}>{valueLabel}</span>
+        <small>{showValue ? formatActivityTypeLabel(entry.type) : "On Reef"}</small>
+      </div>
+    </>
+  );
+
+  if (href) {
+    return (
+      <NavLink to={href} className="activityFeedRow">
+        {content}
+      </NavLink>
+    );
+  }
+
+  return (
+    <article className="activityFeedRow">
+      {content}
+    </article>
+  );
+}
+
 function ActivityMiniRow({ entry }: { entry: ActivityRecord }) {
-  const href =
-    entry.collectionAddress && entry.itemId
-      ? `/item/reef/${entry.collectionAddress}/${entry.itemId}`
-      : entry.collectionSlug
-        ? `/collection/${entry.collectionSlug}`
-        : null;
+  const href = activityEntryHref(entry);
   const valueLabel = entry.priceDisplay === "-" ? formatActivityTypeLabel(entry.type) : entry.priceDisplay;
   const content = (
     <>
@@ -8131,7 +8855,7 @@ function ItemGridCard({ item }: { item: ItemRecord }) {
 
 function DropCard({ drop }: { drop: DropRecord }) {
   return (
-    <article className="dropCard">
+    <NavLink className="dropCard dropCardLink" to={`/drops/${drop.slug}`}>
       <DropCoverImage drop={drop} />
       <div className="dropCardBody">
         <span className="metaLabel">{drop.stage}</span>
@@ -8148,7 +8872,7 @@ function DropCard({ drop }: { drop: DropRecord }) {
           </div>
         </div>
       </div>
-    </article>
+    </NavLink>
   );
 }
 
@@ -8228,12 +8952,19 @@ function DropsHeroCarousel({ drops }: { drops: DropRecord[] }) {
         <div className="dropsHeroFooter">
           <div className="dropsHeroCopy">
             <span className="dropsHeroEyebrow">Drop spotlight</span>
-            <h2>{activeSlide.name}</h2>
+            <NavLink className="dropsHeroTitleLink" to={`/drops/${activeSlide.slug}`}>
+              <h2>{activeSlide.name}</h2>
+            </NavLink>
             <p>
               By {activeSlide.creatorName}
               {activeSlide.startLabel ? ` • ${activeSlide.startLabel}` : ""}
             </p>
             <small>{activeSlide.description || "Live and upcoming drops from Reef creators."}</small>
+            <div className="dropsHeroActions">
+              <NavLink className="actionButton secondary" to={`/drops/${activeSlide.slug}`}>
+                Open drop
+              </NavLink>
+            </div>
           </div>
 
           <div className="dropsHeroMetricGlass">

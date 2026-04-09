@@ -16,6 +16,7 @@ import {
   getCollectionData,
   getCollectionsData,
   getDiscoverData,
+  getDropData,
   getDropsData,
   getItemData,
   getProfileData,
@@ -370,7 +371,7 @@ app.get("/admin/drops", async (request, response) => {
 
   response.json({
     wallet: auth.address,
-    drops: await listAdminDrops({ includeArchived: true })
+    drops: await listAdminDrops({ includeArchived: true, includeInternal: true })
   });
 });
 
@@ -743,6 +744,15 @@ app.get("/dataset/drops", async (request, response) => {
       stage: String(request.query.stage ?? "all")
     })
   );
+});
+
+app.get("/dataset/drop/:slug", async (request, response) => {
+  const result = await getDropData(request.params.slug);
+  if (!result) {
+    response.status(404).json({ error: "Drop not found" });
+    return;
+  }
+  response.json(result);
 });
 
 app.get("/dataset/rewards", async (_, response) => {

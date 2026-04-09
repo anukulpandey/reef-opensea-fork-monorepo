@@ -349,6 +349,32 @@ const dropManagerAbi = [
 ];
 const dropManager = new Contract(config.config.contracts.dropManager.address, dropManagerAbi, provider);
 const onchainDrop = await dropManager.getDrop(dropSlug);
+let cleanup = {
+  dropArchived: false,
+  slug: dropSlug,
+  error: null
+};
+
+try {
+  await api(`/admin/drops/${dropSlug}`, {
+    method: "DELETE",
+    headers: {
+      Authorization: `Bearer ${token}`
+    }
+  });
+  cleanup = {
+    dropArchived: true,
+    slug: dropSlug,
+    error: null
+  };
+  console.error("[e2e] verification drop archived");
+} catch (error) {
+  cleanup = {
+    dropArchived: false,
+    slug: dropSlug,
+    error: error instanceof Error ? error.message : "Failed to archive verification drop."
+  };
+}
 
 console.log(
   JSON.stringify(
@@ -387,6 +413,7 @@ console.log(
         onchainExists: Boolean(onchainDrop.exists),
         onchainName: String(onchainDrop.name)
       },
+      cleanup,
       apiChecks: {
         collectionReady: collectionRecord.collection?.contractReady,
         tokenSearchCount: tokenDataset.tokens?.length ?? null

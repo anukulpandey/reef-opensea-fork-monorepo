@@ -2108,6 +2108,27 @@ export async function getDropsData(filters: { stage: string }) {
   };
 }
 
+export async function getDropData(slug: string) {
+  const normalizedSlug = slug.trim().toLowerCase();
+  if (!normalizedSlug) {
+    return null;
+  }
+
+  const drops = await listAdminDrops({ stage: "all" });
+  const selected = drops.find((record) => record.slug.trim().toLowerCase() === normalizedSlug);
+  if (!selected) {
+    return null;
+  }
+
+  return {
+    drop: toDropRecord(selected),
+    relatedDrops: drops
+      .filter((record) => record.slug !== selected.slug)
+      .slice(0, 3)
+      .map(toDropRecord)
+  };
+}
+
 export async function getRewardsData(): Promise<RewardsRecord> {
   return {
     totalPoints: "-",

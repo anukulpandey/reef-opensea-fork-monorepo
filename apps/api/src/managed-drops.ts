@@ -49,6 +49,22 @@ function normalizeStageValue(stage: number) {
     return stageLabels[stage] ?? "draft";
 }
 
+function isInternalVerificationDrop(
+    drop: Pick<AdminDropRecord, "slug" | "name" | "creatorSlug" | "description">
+) {
+    const slug = drop.slug.trim().toLowerCase();
+    const name = drop.name.trim().toLowerCase();
+    const creatorSlug = drop.creatorSlug.trim().toLowerCase();
+    const description = drop.description.trim().toLowerCase();
+
+    return (
+        creatorSlug === "reef-team" &&
+        slug.startsWith("launch-") &&
+        name.startsWith("launch ") &&
+        description.includes("drop record written through the on-chain drop manager")
+    );
+}
+
 function provider() {
     return new JsonRpcProvider(normalizeRpcUrl(config.rpcUrl));
 }
@@ -157,10 +173,15 @@ function toDropRecord(
 export async function listAdminDrops(options?: {
     stage?: string;
     includeArchived?: boolean;
+    includeInternal?: boolean;
 }) {
+    const shouldIncludeInternal = Boolean(options?.includeInternal);
+    const applyVisibilityFilter = (drops: AdminDropRecord[]) =>
+        shouldIncludeInternal ? drops : drops.filter((drop) => !isInternalVerificationDrop(drop));
+
     const contract = contractWithProvider();
     if (!contract) {
-        return listAdminDropsFromDb(options);
+        return applyVisibilityFilter(await listAdminDropsFromDb(options));
     }
 
     try {
@@ -221,9 +242,9 @@ export async function listAdminDrops(options?: {
             return right.updatedAt.localeCompare(left.updatedAt);
         });
 
-        return drops;
+        return applyVisibilityFilter(drops);
     } catch {
-        return listAdminDropsFromDb(options);
+        return applyVisibilityFilter(await listAdminDropsFromDb(options));
     }
 }
 
