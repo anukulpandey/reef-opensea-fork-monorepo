@@ -2,35 +2,36 @@ import type { ReactNode } from "react";
 
 import { NavLink } from "react-router-dom";
 
-import AmbientEmptyState from "../AmbientEmptyState";
 import { assetUrl } from "../../lib/presentation";
 import type { ItemRecord } from "../../types";
+import ProfileWorkspaceEmptyState from "./ProfileWorkspaceEmptyState";
 
 type ProfileItemsTabProps = {
   items: ItemRecord[];
   view: string;
-  emptyArtwork: string;
+  emptyEyebrow?: string;
   emptyTitle: string;
   emptyCopy: string;
+  emptyActions?: ReactNode;
   renderGridCard: (item: ItemRecord) => ReactNode;
 };
 
 export default function ProfileItemsTab({
   items,
   view,
-  emptyArtwork,
+  emptyEyebrow,
   emptyTitle,
   emptyCopy,
+  emptyActions,
   renderGridCard
 }: ProfileItemsTabProps) {
   if (items.length === 0) {
     return (
-      <AmbientEmptyState
-        className="profileTabPanel"
-        variant="cards"
-        artwork={emptyArtwork}
+      <ProfileWorkspaceEmptyState
+        eyebrow={emptyEyebrow}
         title={emptyTitle}
         copy={emptyCopy}
+        actions={emptyActions}
       />
     );
   }

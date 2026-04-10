@@ -31,6 +31,11 @@
   --control-height-md: 40px;
   --surface-pad: 16px;
   --surface-gap: 16px;
+  --text-xs: 11px;
+  --text-sm: 12px;
+  --text-md: 13px;
+  --text-lg: 16px;
+  --text-xl: 22px;
   --type-1: 11px;
   --type-2: 13px;
   --type-3: 14px;
@@ -40,15 +45,15 @@
   --hover-surface: #171b20;
   --hover-surface-soft: rgba(255, 255, 255, 0.028);
   --hover-shadow: 0 18px 34px rgba(0, 0, 0, 0.24);
-  --font-size-caption: var(--type-1);
-  --font-size-label: var(--type-1);
-  --font-size-body-sm: 12px;
-  --font-size-body: var(--type-2);
-  --font-size-ui: var(--type-3);
-  --font-size-title: var(--type-4);
-  --font-size-section: 18px;
+  --font-size-caption: var(--text-xs);
+  --font-size-label: var(--text-xs);
+  --font-size-body-sm: var(--text-sm);
+  --font-size-body: var(--text-md);
+  --font-size-ui: var(--text-md);
+  --font-size-title: var(--text-lg);
+  --font-size-section: var(--text-lg);
   --font-size-hero: var(--type-5);
-  --font-size-collection-hero: 28px;
+  --font-size-collection-hero: var(--text-xl);
   --font-size-profile-hero: 38px;
   --font-weight-normal: 430;
   --font-weight-medium: 500;
@@ -405,8 +410,47 @@ button {
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  z-index: 35;
+  z-index: 90;
   box-shadow: 0 1px 0 rgba(255, 255, 255, 0.02);
+}
+
+.appShell.profileShell .pageViewport {
+  padding-top: 18px;
+}
+
+.appShell.profileShell .topHeader {
+  top: 14px;
+  left: calc(var(--rail-collapsed) + 18px);
+  right: 18px;
+  height: auto;
+  min-height: 64px;
+  padding: 10px 14px;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 18px;
+  border-bottom-color: rgba(255, 255, 255, 0.07);
+  background:
+    linear-gradient(180deg, rgba(12, 15, 20, 0.62), rgba(9, 11, 15, 0.46)),
+    radial-gradient(circle at 18% 0%, rgba(92, 124, 255, 0.1), transparent 28%);
+  backdrop-filter: blur(20px) saturate(1.12);
+  box-shadow:
+    0 18px 46px rgba(0, 0, 0, 0.28),
+    inset 0 1px 0 rgba(255, 255, 255, 0.045);
+}
+
+.appShell.profileShell .searchField {
+  background: rgba(18, 21, 27, 0.72);
+  border-color: rgba(255, 255, 255, 0.07);
+  backdrop-filter: blur(14px);
+}
+
+.appShell.profileShell .headerChestButton {
+  background: rgba(18, 21, 27, 0.68);
+  border-color: rgba(255, 255, 255, 0.07);
+  backdrop-filter: blur(14px);
+}
+
+.appShell.profileShell .headerDivider {
+  background: rgba(255, 255, 255, 0.08);
 }
 
 .searchField {
@@ -682,10 +726,133 @@ button {
   color: #fff;
 }
 
+.headerProfileTrigger.isOpen .headerProfileChevron {
+  transform: rotate(180deg);
+}
+
 .headerProfileChevron {
   width: 18px;
   height: 18px;
   color: rgba(255, 255, 255, 0.86);
+  transition: transform 0.18s ease;
+}
+
+.headerProfileMenuWrap {
+  position: relative;
+}
+
+.headerProfileMenu {
+  position: absolute;
+  top: calc(100% + 12px);
+  right: 0;
+  z-index: 140;
+  width: min(280px, calc(100vw - 24px));
+  padding: 10px;
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  background:
+    linear-gradient(180deg, rgba(20, 23, 28, 0.985), rgba(15, 18, 22, 0.985)),
+    radial-gradient(circle at 100% 0%, rgba(79, 110, 255, 0.08), transparent 28%);
+  box-shadow:
+    0 22px 50px rgba(0, 0, 0, 0.42),
+    inset 0 1px 0 rgba(255, 255, 255, 0.025);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.headerProfileMenuHeader {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 8px 10px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.headerProfileMenuAvatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  flex: 0 0 auto;
+}
+
+.headerProfileMenuCopy {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.headerProfileMenuCopy strong {
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.headerProfileMenuCopy span {
+  color: rgba(255, 255, 255, 0.54);
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.headerProfileMenuItem {
+  width: 100%;
+  min-height: 54px;
+  padding: 10px 12px;
+  border: 1px solid transparent;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.02);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  text-align: left;
+}
+
+.headerProfileMenuItemCopy {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.headerProfileMenuItemCopy strong {
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.headerProfileMenuItemCopy small {
+  color: rgba(255, 255, 255, 0.54);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.headerProfileMenuItem.danger {
+  background: rgba(255, 124, 124, 0.05);
+}
+
+.headerProfileMenuItem.danger .headerProfileMenuItemCopy strong,
+.headerProfileMenuItem.danger .microIcon {
+  color: #ffb7b7;
+}
+
+.headerProfileMenuItem:hover {
+  border-color: rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.headerProfileMenuItem.danger:hover {
+  border-color: rgba(255, 124, 124, 0.14);
+  background: rgba(255, 124, 124, 0.08);
 }
 
 .iconCircle {
@@ -1060,14 +1227,347 @@ button {
   box-shadow: 0 0 0 6px rgba(255, 127, 127, 0.14);
 }
 
-.transactionProgressModal.tone-success .transactionOrbCore {
-  background:
-    radial-gradient(circle at 36% 30%, #f6fff8 0%, #92ffc1 30%, #42d392 68%, #0b2f23 100%);
+.transactionProgressOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 160;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(6, 8, 11, 0.88);
+  backdrop-filter: none;
 }
 
-.transactionProgressModal.tone-error .transactionOrbCore {
-  background:
-    radial-gradient(circle at 36% 30%, #fff3f3 0%, #ffadad 28%, #ff7070 68%, #351414 100%);
+.transactionProgressModal {
+  position: relative;
+  width: min(100%, 620px);
+  overflow: hidden;
+  border-radius: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: #111419;
+  box-shadow: 0 24px 56px rgba(0, 0, 0, 0.42);
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.transactionProgressModal::before {
+  display: none;
+}
+
+.transactionProgressIntro,
+.transactionProgressBody,
+.transactionProgressWorkflow {
+  position: relative;
+  z-index: 1;
+}
+
+.transactionProgressIntro {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.transactionProgressStatusPill,
+.transactionProgressStepCount {
+  min-height: 28px;
+  padding: 0 11px;
+  border-radius: 10px;
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: #161a20;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.transactionProgressStatusPill {
+  color: rgba(215, 223, 237, 0.92);
+}
+
+.transactionProgressStatusPill.tone-processing {
+  border-color: rgba(113, 140, 255, 0.34);
+  background: #182033;
+  color: #dbe5ff;
+}
+
+.transactionProgressStatusPill.tone-success {
+  border-color: rgba(99, 211, 155, 0.34);
+  background: #15251d;
+  color: #cff8e1;
+}
+
+.transactionProgressStatusPill.tone-error {
+  border-color: rgba(255, 127, 127, 0.34);
+  background: #2a1717;
+  color: #ffd4d4;
+}
+
+.transactionProgressStepCount {
+  color: rgba(255, 255, 255, 0.58);
+}
+
+.transactionProgressBody {
+  display: grid;
+  grid-template-columns: 84px minmax(0, 1fr);
+  gap: 18px;
+  align-items: center;
+}
+
+.transactionProgressSignal {
+  position: relative;
+  width: 72px;
+  height: 72px;
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+}
+
+.transactionProgressSignalHalo,
+.transactionProgressSignalRing,
+.transactionProgressSignalCore {
+  position: absolute;
+  border-radius: 14px;
+}
+
+.transactionProgressSignalHalo {
+  display: none;
+}
+
+.transactionProgressSignalRing {
+  inset: 0;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: #151920;
+}
+
+.transactionProgressSignalCore {
+  inset: 14px;
+  background: #6d7fff;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+}
+
+.transactionProgressModal.tone-success .transactionProgressSignalCore {
+  background: #42d392;
+}
+
+.transactionProgressModal.tone-error .transactionProgressSignalCore {
+  background: #ff7070;
+}
+
+.transactionProgressHeader {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  text-align: left;
+}
+
+.transactionProgressHeader h2 {
+  margin: 0;
+  font-size: var(--text-xl);
+  line-height: 1.02;
+  letter-spacing: -0.035em;
+}
+
+.transactionProgressHeader p {
+  margin: 0;
+  color: rgba(215, 221, 230, 0.72);
+  font-size: 15px;
+  line-height: 1.55;
+}
+
+.transactionProgressDetail {
+  color: rgba(255, 255, 255, 0.54);
+  font-size: 12px;
+}
+
+.transactionProgressWorkflow {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.transactionProgressSummaryGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.transactionProgressSummaryCard {
+  padding: 14px 15px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: #15191f;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.transactionProgressSummaryCard span {
+  color: rgba(255, 255, 255, 0.52);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.transactionProgressSummaryCard strong {
+  color: #ffffff;
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+.transactionProgressBar {
+  position: relative;
+  z-index: 1;
+  height: 8px;
+  border-radius: 999px;
+  background: #0e1116;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.transactionProgressBarFill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: #6d7fff;
+}
+
+.transactionProgressBarFill.success {
+  background: #42d392;
+}
+
+.transactionProgressBarFill.error {
+  background: #ff7070;
+}
+
+.transactionProgressStepsShell {
+  padding: 14px 15px;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: #15191f;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.transactionProgressSectionHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.transactionProgressSectionHeader strong {
+  color: #ffffff;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.transactionProgressSectionHeader span {
+  color: rgba(255, 255, 255, 0.52);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.transactionProgressSteps {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.transactionProgressStep {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  color: rgba(162, 173, 188, 0.82);
+}
+
+.transactionProgressStepMarker {
+  width: 24px;
+  height: 24px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: #111419;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(255, 255, 255, 0.58);
+  font-size: 12px;
+  font-weight: 700;
+  flex: 0 0 auto;
+}
+
+.transactionProgressStepCopy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
+  padding-top: 1px;
+}
+
+.transactionProgressStepLabel {
+  font-size: 13px;
+  font-weight: 560;
+}
+
+.transactionProgressStepState {
+  color: rgba(255, 255, 255, 0.48);
+  font-size: 12px;
+}
+
+.transactionProgressStep.active {
+  color: #f8fafc;
+}
+
+.transactionProgressStep.active .transactionProgressStepMarker {
+  border-color: rgba(109, 127, 255, 0.4);
+  background: #1a2136;
+  color: #dceeff;
+}
+
+.transactionProgressStep.active .transactionProgressStepState {
+  color: rgba(174, 214, 255, 0.82);
+}
+
+.transactionProgressStep.done {
+  color: #d2f8e4;
+}
+
+.transactionProgressStep.done .transactionProgressStepMarker {
+  border-color: rgba(99, 211, 155, 0.38);
+  background: #15251d;
+  color: #d9fbe8;
+}
+
+.transactionProgressStep.done .transactionProgressStepState {
+  color: rgba(186, 248, 212, 0.74);
+}
+
+.transactionProgressStep.error {
+  color: #ffd6d6;
+}
+
+.transactionProgressStep.error .transactionProgressStepMarker {
+  border-color: rgba(255, 127, 127, 0.38);
+  background: #2a1717;
+  color: #ffe0e0;
+}
+
+.transactionProgressStep.error .transactionProgressStepState {
+  color: rgba(255, 188, 188, 0.82);
 }
 
 @keyframes transactionPulseAura {
@@ -1799,7 +2299,7 @@ button {
 .emptyShellState h2 {
   margin: 0 0 8px;
   color: var(--text);
-  font-size: 28px;
+  font-size: var(--text-xl);
 }
 
 .emptyShellState p,
@@ -2322,13 +2822,28 @@ button {
   flex-direction: column;
 }
 
+.activityPageSurface {
+  background:
+    linear-gradient(180deg, rgba(16, 19, 23, 0.985), rgba(12, 14, 17, 0.99)),
+    radial-gradient(circle at 50% 0%, rgba(72, 91, 255, 0.045), transparent 34%);
+  border-color: rgba(255, 255, 255, 0.06);
+}
+
+.activityPageSurface .collectionsToolbar {
+  margin-top: 4px;
+}
+
+.activityPageFeed {
+  margin-top: 6px;
+}
+
 .activityFeedRow {
   display: grid;
   grid-template-columns: 92px minmax(0, 1fr) auto;
   align-items: center;
   gap: 18px;
   padding: 16px 0;
-  border-bottom: 1px solid var(--border-soft);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.045);
   text-decoration: none;
   color: inherit;
   min-width: 0;
@@ -2342,8 +2857,8 @@ button {
 }
 
 .activityFeedRow:hover {
-  background: var(--hover-surface-soft);
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.03);
+  background: rgba(255, 255, 255, 0.02);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.025);
 }
 
 .activityFeedMediaWrap {
@@ -2356,6 +2871,7 @@ button {
   width: 84px;
   height: 84px;
   border-radius: 18px;
+  box-shadow: 0 16px 30px rgba(0, 0, 0, 0.18);
 }
 
 .activityFeedRow:hover .activityFeedMedia img {
@@ -2462,7 +2978,7 @@ button {
   font-size: 21px;
   font-weight: 700;
   line-height: 1;
-  color: var(--text);
+  color: rgba(255, 255, 255, 0.96);
 }
 
 .activityFeedValue.isEvent {
@@ -3937,6 +4453,22 @@ button {
 .actionButton.primary {
   background: var(--accent);
   color: white;
+}
+
+.primaryCta.danger,
+.actionButton.danger {
+  background: rgba(94, 24, 24, 0.18);
+  color: #ffd4d4;
+  border: 1px solid rgba(255, 106, 106, 0.38);
+  box-shadow: inset 0 0 0 1px rgba(255, 106, 106, 0.05);
+}
+
+.primaryCta.success,
+.actionButton.success {
+  background: rgba(28, 92, 54, 0.24);
+  color: #d9ffe8;
+  border: 1px solid rgba(98, 212, 145, 0.42);
+  box-shadow: inset 0 0 0 1px rgba(98, 212, 145, 0.06);
 }
 
 .primaryCta.fullWidth {
@@ -7342,7 +7874,7 @@ button {
 .collectionItemsEmptyState h3 {
   margin: 0;
   color: var(--text);
-  font-size: 31px;
+  font-size: var(--text-xl);
   line-height: 1.06;
   letter-spacing: -0.03em;
 }
@@ -7351,7 +7883,7 @@ button {
   max-width: 500px;
   margin: 0;
   color: var(--muted);
-  font-size: 15px;
+  font-size: var(--font-size-ui);
   line-height: 1.55;
 }
 
@@ -8464,7 +8996,7 @@ button {
 
 .listingComposerHeader h2 {
   margin: 4px 0 0;
-  font-size: 30px;
+  font-size: var(--text-xl);
   line-height: 1.05;
 }
 
@@ -8505,7 +9037,7 @@ button {
   outline: none;
   background: transparent;
   color: var(--text);
-  font-size: 28px;
+  font-size: var(--text-xl);
   font-weight: 700;
   line-height: 1;
 }
@@ -8542,9 +9074,9 @@ button {
 
 .titleCluster h1 {
   margin: 0;
-  font-size: clamp(30px, 2.4vw, 46px);
+  font-size: var(--text-xl);
   line-height: 1.04;
-  letter-spacing: -0.04em;
+  letter-spacing: -0.03em;
   font-weight: 620;
 }
 
@@ -8593,14 +9125,14 @@ button {
 }
 
 .itemModal .identityWithAvatar strong {
-  font-size: 14px;
+  font-size: var(--font-size-ui);
   font-weight: 600;
 }
 
 .itemOwnerLabel {
   min-width: 0;
   color: rgba(255, 255, 255, 0.72);
-  font-size: 14px;
+  font-size: var(--font-size-ui);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -8686,7 +9218,7 @@ button {
 }
 
 .priceCluster strong {
-  font-size: clamp(22px, 3vw, 28px);
+  font-size: var(--text-xl);
   line-height: 1.02;
   font-family: inherit;
   letter-spacing: -0.035em;
@@ -8695,7 +9227,7 @@ button {
 
 .priceCluster small {
   color: rgba(255, 255, 255, 0.52);
-  font-size: var(--font-size-ui);
+  font-size: var(--font-size-body);
   font-family: inherit;
 }
 
@@ -10217,6 +10749,113 @@ button {
   min-width: 172px;
 }
 
+.profileWorkspaceEmptyState {
+  min-height: 360px;
+  padding: 28px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  text-align: center;
+  background:
+    linear-gradient(180deg, rgba(19, 22, 26, 0.98), rgba(15, 18, 22, 0.98)),
+    radial-gradient(circle at 50% 0%, rgba(88, 110, 255, 0.06), transparent 34%);
+}
+
+.profileWorkspaceEmptyVisual {
+  display: flex;
+  justify-content: center;
+}
+
+.profileWorkspaceEmptyFrame {
+  width: 92px;
+  min-height: 92px;
+  padding: 14px;
+  border-radius: 24px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.028), rgba(255, 255, 255, 0.012)),
+    rgba(17, 20, 24, 0.92);
+  box-shadow:
+    0 18px 36px rgba(0, 0, 0, 0.18),
+    inset 0 1px 0 rgba(255, 255, 255, 0.025);
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  align-content: start;
+}
+
+.profileWorkspaceEmptyTile {
+  display: block;
+  border-radius: 10px;
+}
+
+.profileWorkspaceEmptyTile.primary {
+  height: 36px;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.profileWorkspaceEmptyTile.secondary {
+  height: 36px;
+  background: rgba(142, 108, 96, 0.72);
+  box-shadow: inset 0 0 0 1px rgba(255, 230, 214, 0.08);
+}
+
+.profileWorkspaceEmptyLine {
+  display: block;
+  grid-column: 1 / -1;
+  height: 4px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.profileWorkspaceEmptyLine.short {
+  width: 62%;
+}
+
+.profileWorkspaceEmptyCopy {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: center;
+  max-width: 520px;
+}
+
+.profileWorkspaceEmptyEyebrow {
+  color: rgba(255, 255, 255, 0.48);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.profileWorkspaceEmptyCopy h3 {
+  margin: 0;
+  font-size: var(--text-xl);
+  line-height: 1.06;
+  letter-spacing: -0.03em;
+}
+
+.profileWorkspaceEmptyCopy p {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--font-size-ui);
+  line-height: 1.6;
+}
+
+.profileWorkspaceEmptyActions {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.profileWorkspaceEmptyActions .actionButton {
+  min-width: 150px;
+}
+
 .collectionTableGhost {
   opacity: 0.32;
 }
@@ -10995,6 +11634,24 @@ button {
     filter: brightness(1.04);
   }
 
+  .primaryCta.danger:hover,
+  .actionButton.danger:hover {
+    transform: translateY(-1px);
+    border-color: rgba(255, 126, 126, 0.54);
+    background: rgba(120, 30, 30, 0.24);
+    box-shadow: 0 16px 28px rgba(117, 24, 24, 0.22);
+    filter: none;
+  }
+
+  .primaryCta.success:hover,
+  .actionButton.success:hover {
+    transform: translateY(-1px);
+    border-color: rgba(123, 231, 165, 0.56);
+    background: rgba(32, 118, 67, 0.32);
+    box-shadow: 0 16px 28px rgba(20, 92, 54, 0.22);
+    filter: none;
+  }
+
   .itemModal .buyPanel:hover,
   .itemModal .detailsAccordion:hover,
   .itemModal .ghostIcon:hover,
@@ -11227,6 +11884,21 @@ button {
 
   .profileEmptyRow {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .profileWorkspaceEmptyState {
+    min-height: 320px;
+    padding: 24px 18px;
+  }
+
+  .profileWorkspaceEmptyActions {
+    width: 100%;
+    flex-direction: column;
+  }
+
+  .profileWorkspaceEmptyActions .actionButton {
+    width: 100%;
+    min-width: 0;
   }
 
   .featuredCollectionBody {
@@ -11527,6 +12199,25 @@ button {
     left: 0;
   }
 
+  .appShell.profileShell .pageViewport {
+    padding-top: calc(var(--header) + 16px);
+  }
+
+  .appShell.profileShell .topHeader {
+    top: 0;
+    left: 0;
+    right: 0;
+    min-height: var(--header);
+    padding: 14px 18px;
+    border-radius: 0;
+    border-inline: none;
+    border-top: none;
+    border-bottom: 1px solid var(--border);
+    background: rgba(12, 14, 17, 0.96);
+    backdrop-filter: none;
+    box-shadow: 0 1px 0 rgba(255, 255, 255, 0.02);
+  }
+
   .sidebarRail {
     width: 248px;
     height: auto;
@@ -11668,6 +12359,26 @@ button {
   .transactionProgressModal {
     padding: 24px 20px 22px;
     border-radius: 22px;
+  }
+
+  .transactionProgressIntro,
+  .transactionProgressBody,
+  .transactionProgressSectionHeader {
+    gap: 10px;
+  }
+
+  .transactionProgressBody,
+  .transactionProgressSummaryGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .transactionProgressBody {
+    align-items: flex-start;
+  }
+
+  .transactionProgressSignal {
+    width: 70px;
+    height: 70px;
   }
 
   .transactionProgressHeader h2 {

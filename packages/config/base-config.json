@@ -65,7 +65,7 @@
     "key": "reef",
     "chainId": 13939,
     "chainName": "Reef Testnet",
-    "rpcUrl": "http://host.docker.internal:8545",
+    "rpcUrl": "http://34.123.142.246:8545",
     "nativeCurrency": {
       "name": "Reef",
       "symbol": "REEF",
@@ -99,20 +99,20 @@
     },
     "fallback": {
       "creatorFactory721": {
-        "address": "",
-        "verified": false
+        "address": "0x5da80f08835b6be25233a8ac7f20593ce277697a",
+        "verified": true
       },
       "editionFactory1155": {
-        "address": "",
-        "verified": false
+        "address": "0xf1f7ef041e0602c40b1f92d41afe6a4c9e114027",
+        "verified": true
       },
       "marketplace721": {
-        "address": "",
-        "verified": false
+        "address": "0xdbd5a41a5d1d787c23073fadb234eb2512178248",
+        "verified": true
       },
       "marketplace1155": {
-        "address": "",
-        "verified": false
+        "address": "0xa62efe6d9688ab2c7d19c654713e8f25d8c6dd9e",
+        "verified": true
       },
       "dropManager": {
         "address": "",
@@ -165,45 +165,45 @@
     }
   },
   "deployment": {
-    "mode": "blocked",
+    "mode": "fallback",
     "creator": {
       "erc721": {
-        "enabled": false,
-        "mode": "blocked",
-        "factoryAddress": "",
+        "enabled": true,
+        "mode": "fallback",
+        "factoryAddress": "0x5da80f08835b6be25233a8ac7f20593ce277697a",
         "implementationAddress": "",
-        "marketplaceMode": "blocked",
-        "reason": "Creator deployment has not been configured."
+        "marketplaceMode": "fallback",
+        "reason": ""
       },
       "erc1155": {
-        "enabled": false,
-        "mode": "blocked",
-        "factoryAddress": "",
+        "enabled": true,
+        "mode": "fallback",
+        "factoryAddress": "0xf1f7ef041e0602c40b1f92d41afe6a4c9e114027",
         "implementationAddress": "",
-        "marketplaceMode": "blocked",
-        "reason": "Edition deployment has not been configured."
+        "marketplaceMode": "fallback",
+        "reason": ""
       }
     },
     "marketplace": {
       "erc721": {
-        "enabled": false,
-        "mode": "blocked",
-        "address": "",
-        "reason": "ERC721 trading is not configured."
+        "enabled": true,
+        "mode": "fallback",
+        "address": "0xdbd5a41a5d1d787c23073fadb234eb2512178248",
+        "reason": ""
       },
       "erc1155": {
-        "enabled": false,
-        "mode": "blocked",
-        "address": "",
-        "reason": "ERC1155 trading is not configured."
+        "enabled": true,
+        "mode": "fallback",
+        "address": "0xa62efe6d9688ab2c7d19c654713e8f25d8c6dd9e",
+        "reason": ""
       }
     }
   },
   "services": {
-    "webBaseUrl": "http://localhost:3000",
-    "apiBaseUrl": "http://localhost:4000",
-    "ipfsApiUrl": "http://localhost:5001",
-    "ipfsGatewayUrl": "http://localhost:8080/ipfs"
+    "webBaseUrl": "http://localhost:3001",
+    "apiBaseUrl": "http://localhost:4002",
+    "ipfsApiUrl": "http://localhost:5002",
+    "ipfsGatewayUrl": "http://localhost:8081/ipfs"
   },
   "storage": {
     "rootDir": "storage",

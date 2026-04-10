@@ -1,11 +1,11 @@
 {
   "chainId": 13939,
-  "rpcUrl": "http://host.docker.internal:8545",
+  "rpcUrl": "http://34.123.142.246:8545",
   "deployer": "0x212e2A4545ee7AC59837212F9860DbC245090B6f",
   "verified": true,
-  "address": "0xd8f420258a75581e8f110a1d46c2d3f78ea2087f",
-  "txHash": "0x5ef69425d531bd999c7eae350250522a0dcb58618b23d97c3f9c19344902626c",
-  "blockNumber": 17,
-  "deployedAt": "2026-04-08T16:47:40.970Z",
+  "checkedAt": "2026-04-10T11:13:10.318Z",
+  "address": "0x5541a42791d53a06b72b8cf0c4756ec0c781f451",
+  "txHash": "0x0c5569a184e3e107c2d644b0402df95ddc3e01337a3246ebfb88b598a31dee92",
+  "blockNumber": 1487407,
   "reason": "Reef returned bytecode for the deployment probe."
 }

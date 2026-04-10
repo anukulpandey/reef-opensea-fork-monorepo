@@ -11,7 +11,6 @@ import {
   getNft,
   getUserByAddress,
   listCreatorCollections,
-  listHolders,
   listListings,
   listCreatedNftsForAddress,
   listOwnedNftsForAddress,
@@ -568,6 +567,44 @@ function timestampValue(input: string | Date | null | undefined) {
   return Number.isFinite(value) ? value : 0;
 }
 
+function resolveEffectiveOwnerAddress(input: {
+  persistedOwnerAddress: string;
+  listing: ListingRecord | null;
+  latestSale: SaleRecord | null;
+  latestTransfer: TransferRecord | null;
+}) {
+  if (input.listing?.seller) {
+    return input.listing.seller;
+  }
+
+  const latestTransferTime = timestampValue(input.latestTransfer?.createdAt);
+  const latestSaleTime = timestampValue(input.latestSale?.createdAt);
+
+  if (input.latestTransfer?.toAddress && latestTransferTime >= latestSaleTime) {
+    return input.latestTransfer.toAddress;
+  }
+
+  if (input.latestSale?.buyer) {
+    return input.latestSale.buyer;
+  }
+
+  return input.persistedOwnerAddress;
+}
+
+function buildResolvedHolderRows(items: Array<{ ownerAddress: string }>) {
+  const quantities = new Map<string, number>();
+  for (const item of items) {
+    const normalizedOwner = item.ownerAddress.trim().toLowerCase();
+    if (!normalizedOwner) {
+      continue;
+    }
+    quantities.set(normalizedOwner, (quantities.get(normalizedOwner) ?? 0) + 1);
+  }
+  return Array.from(quantities.entries())
+    .map(([ownerAddress, quantity]) => ({ ownerAddress, quantity }))
+    .sort((left, right) => right.quantity - left.quantity || left.ownerAddress.localeCompare(right.ownerAddress));
+}
+
 function resolveImageUrl(nft: NftRecord | null) {
   return (
     nft?.imageUrl ||
@@ -1037,15 +1074,38 @@ async function toPublicCreatorCollectionSummary(record: CreatorCollectionRecord)
   }
 
   const creatorCollectionAddress = record.contractAddress.toLowerCase();
-  const [nfts, activeListings, sales, holderRows] = await Promise.all([
+  const [nfts, activeListings, sales, transfers] = await Promise.all([
     listNfts(creatorCollectionAddress),
     listListings({ collectionAddress: creatorCollectionAddress, status: "active" }),
     listSales(200, creatorCollectionAddress),
-    listHolders(creatorCollectionAddress)
+    listTransfers(200, { collectionAddress: creatorCollectionAddress })
   ]);
 
+  const listingsByToken = new Map(activeListings.map((listing) => [listing.tokenId, listing]));
+  const latestSaleByToken = new Map<string, SaleRecord>();
+  for (const sale of sales) {
+    if (!latestSaleByToken.has(sale.tokenId)) {
+      latestSaleByToken.set(sale.tokenId, sale);
+    }
+  }
+  const latestTransferByToken = new Map<string, TransferRecord>();
+  for (const transfer of transfers) {
+    if (!latestTransferByToken.has(transfer.tokenId)) {
+      latestTransferByToken.set(transfer.tokenId, transfer);
+    }
+  }
+
   const mintedCount = nfts.length;
-  const ownerCount = holderRows.length;
+  const ownerCount = buildResolvedHolderRows(
+    nfts.map((nft) => ({
+      ownerAddress: resolveEffectiveOwnerAddress({
+        persistedOwnerAddress: nft.ownerAddress,
+        listing: listingsByToken.get(nft.tokenId) ?? null,
+        latestSale: latestSaleByToken.get(nft.tokenId) ?? null,
+        latestTransfer: latestTransferByToken.get(nft.tokenId) ?? null
+      })
+    }))
+  ).length;
   const listedPercent = mintedCount > 0 ? (activeListings.length / mintedCount) * 100 : 0;
   const floorPriceRaw = floorPriceRawFromListings(activeListings) ?? 0n;
   const totalVolumeRaw = totalVolumeRawFromSales(sales);
@@ -1207,12 +1267,11 @@ async function buildMarketState(): Promise<MarketState> {
     };
   }
 
-  const [nfts, activeListings, sales, transfers, holderRows] = await Promise.all([
+  const [nfts, activeListings, sales, transfers] = await Promise.all([
     listNfts(collectionAddress),
     listListings({ collectionAddress, status: "active" }),
     listSales(200, collectionAddress),
-    listTransfers(200, { collectionAddress }),
-    listHolders(collectionAddress)
+    listTransfers(200, { collectionAddress })
   ]);
 
   const listingsByToken = new Map(activeListings.map((listing) => [listing.tokenId, listing]));
@@ -1222,12 +1281,24 @@ async function buildMarketState(): Promise<MarketState> {
       latestSaleByToken.set(sale.tokenId, sale);
     }
   }
+  const latestTransferByToken = new Map<string, TransferRecord>();
+  for (const transfer of transfers) {
+    if (!latestTransferByToken.has(transfer.tokenId)) {
+      latestTransferByToken.set(transfer.tokenId, transfer);
+    }
+  }
 
   const items = await Promise.all(nfts.map(async (nft, index) => {
     const listing = listingsByToken.get(nft.tokenId) ?? null;
     const latestSale = latestSaleByToken.get(nft.tokenId) ?? null;
+    const latestTransfer = latestTransferByToken.get(nft.tokenId) ?? null;
     const attributes = Array.isArray(nft.attributes) ? nft.attributes : [];
-    const ownerAddress = listing?.seller ?? nft.ownerAddress;
+    const ownerAddress = resolveEffectiveOwnerAddress({
+      persistedOwnerAddress: nft.ownerAddress,
+      listing,
+      latestSale,
+      latestTransfer
+    });
     const creatorAddress = nft.creatorAddress || latestSale?.seller || ownerAddress;
     const imageUrl = await resolvePublicNftImage(nft, {
       collectionSlug,
@@ -1373,7 +1444,8 @@ async function buildMarketState(): Promise<MarketState> {
     ? (activeListings.length / items.length) * 100
     : 0;
 
-  const holderCount = holderRows.length;
+  const resolvedHolderRows = buildResolvedHolderRows(items);
+  const holderCount = resolvedHolderRows.length;
   const firstItem = items[0] ?? null;
   const creatorProfile = {
     slug: creatorSlug,
@@ -1389,7 +1461,7 @@ async function buildMarketState(): Promise<MarketState> {
   } satisfies ProfileSummary;
 
   const holders = await Promise.all(
-    holderRows.map(async (holder) => ({
+    resolvedHolderRows.map(async (holder) => ({
       ...(await buildProfile(holder.ownerAddress, holder.quantity, totalVolumeRaw.toString())),
       ownerAddress: holder.ownerAddress,
       quantity: Number(holder.quantity),
@@ -1572,12 +1644,11 @@ async function buildCreatorCollectionDetail(
   }
 
   const creatorCollectionAddress = draft.contractAddress.toLowerCase();
-  const [nfts, activeListings, sales, transfers, holderRows] = await Promise.all([
+  const [nfts, activeListings, sales, transfers] = await Promise.all([
     listNfts(creatorCollectionAddress),
     listListings({ collectionAddress: creatorCollectionAddress, status: "active" }),
     listSales(200, creatorCollectionAddress),
-    listTransfers(200, { collectionAddress: creatorCollectionAddress }),
-    listHolders(creatorCollectionAddress)
+    listTransfers(200, { collectionAddress: creatorCollectionAddress })
   ]);
 
   const listingsByToken = new Map(activeListings.map((listing) => [listing.tokenId, listing]));
@@ -1585,6 +1656,12 @@ async function buildCreatorCollectionDetail(
   for (const sale of sales) {
     if (!latestSaleByToken.has(sale.tokenId)) {
       latestSaleByToken.set(sale.tokenId, sale);
+    }
+  }
+  const latestTransferByToken = new Map<string, TransferRecord>();
+  for (const transfer of transfers) {
+    if (!latestTransferByToken.has(transfer.tokenId)) {
+      latestTransferByToken.set(transfer.tokenId, transfer);
     }
   }
 
@@ -1595,8 +1672,14 @@ async function buildCreatorCollectionDetail(
   const items = await Promise.all(nfts.map(async (nft, index) => {
     const listing = listingsByToken.get(nft.tokenId) ?? null;
     const latestSale = latestSaleByToken.get(nft.tokenId) ?? null;
+    const latestTransfer = latestTransferByToken.get(nft.tokenId) ?? null;
     const attributes = Array.isArray(nft.attributes) ? nft.attributes : [];
-    const ownerAddress = listing?.seller ?? nft.ownerAddress;
+    const ownerAddress = resolveEffectiveOwnerAddress({
+      persistedOwnerAddress: nft.ownerAddress,
+      listing,
+      latestSale,
+      latestTransfer
+    });
     const creatorAddress = nft.creatorAddress || draft.ownerAddress;
     const imageUrl = await resolvePublicNftImage(nft, {
       collectionSlug: draft.slug,
@@ -1736,7 +1819,8 @@ async function buildCreatorCollectionDetail(
       .slice()
       .sort((left, right) => (BigInt(left.priceRaw) < BigInt(right.priceRaw) ? -1 : 1))[0] ?? null;
   const listedPercent = items.length ? (activeListings.length / items.length) * 100 : 0;
-  const holderCount = holderRows.length;
+  const resolvedHolderRows = buildResolvedHolderRows(items);
+  const holderCount = resolvedHolderRows.length;
   const featuredPreviewImages = items
     .slice(0, 5)
     .map((item) => normalizePublicMediaUrl(item.imageUrl) || baseCollection.avatarUrl);
@@ -1747,7 +1831,7 @@ async function buildCreatorCollectionDetail(
       itemImageUrls: items.map((item) => item.imageUrl)
     }) || placeholderSvg(draft.name, "Creator collection", "#2081e2", true);
   const holders = await Promise.all(
-    holderRows.map(async (holder) => ({
+    resolvedHolderRows.map(async (holder) => ({
       ...(await buildProfile(holder.ownerAddress, holder.quantity, totalVolumeRaw.toString())),
       ownerAddress: holder.ownerAddress,
       quantity: Number(holder.quantity),
@@ -2525,7 +2609,38 @@ export async function getProfileData(slug: string): Promise<ProfileResponse | nu
     buildProfileTokenHoldings(normalizedAddress)
   ]);
 
-  const referencedNfts = dedupeNftRecords([...ownedNfts, ...createdNfts]);
+  const referencedNfts = dedupeNftRecords([
+    ...ownedNfts,
+    ...createdNfts,
+    ...walletSales.map((sale) => ({
+      collectionSlug: "",
+      collectionAddress: sale.collectionAddress,
+      tokenId: sale.tokenId,
+      name: "",
+      description: "",
+      imageUrl: "",
+      metadataUri: "",
+      ownerAddress: sale.buyer,
+      creatorAddress: sale.seller,
+      attributes: [],
+      mintedAt: sale.createdAt,
+      updatedAt: sale.createdAt
+    } satisfies NftRecord)),
+    ...walletTransfers.map((transfer) => ({
+      collectionSlug: "",
+      collectionAddress: transfer.collectionAddress,
+      tokenId: transfer.tokenId,
+      name: "",
+      description: "",
+      imageUrl: "",
+      metadataUri: "",
+      ownerAddress: transfer.toAddress,
+      creatorAddress: transfer.fromAddress,
+      attributes: [],
+      mintedAt: transfer.createdAt,
+      updatedAt: transfer.createdAt
+    } satisfies NftRecord))
+  ]);
 
   const { detailsByAddress, collectionsByAddress } = await buildProfileCollectionContext({
     address: normalizedAddress,

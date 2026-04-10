@@ -309,6 +309,7 @@ type MarketplaceContextValue = {
   status: string;
   actionModal: TransactionProgressState | null;
   connectWallet: () => Promise<void>;
+  logout: () => void;
   getWalletSession: () => Promise<WalletSession | null>;
   setStatus: (value: string) => void;
   showActionModal: (value: Omit<TransactionProgressState, "tone"> & { tone?: TransactionProgressTone }) => void;
@@ -1511,6 +1512,22 @@ export default function App() {
     showToast(value);
   }
 
+  function clearStoredWalletSession() {
+    localStorage.removeItem(authTokenStorageKey);
+    localStorage.removeItem(authAddressStorageKey);
+    setAuthToken("");
+    setUserRole("user");
+    setCurrentUser(null);
+    setAccount("");
+    setProfileSetupOpen(false);
+    setActionModal(null);
+  }
+
+  function logout() {
+    clearStoredWalletSession();
+    setStatus("Logged out from wallet session.");
+  }
+
   useEffect(() => {
     let cancelled = false;
     fetchJson<BootstrapResponse>("/bootstrap")
@@ -1609,11 +1626,7 @@ export default function App() {
         maybeOpenProfileSetup(normalizedUser);
       })
       .catch(() => {
-        localStorage.removeItem(authTokenStorageKey);
-        localStorage.removeItem(authAddressStorageKey);
-        setAuthToken("");
-        setUserRole("user");
-        setCurrentUser(null);
+        clearStoredWalletSession();
       });
   }, []);
 
@@ -1773,6 +1786,7 @@ export default function App() {
         status,
         actionModal,
         connectWallet,
+        logout,
         getWalletSession,
         setStatus,
         showActionModal,
@@ -1943,11 +1957,12 @@ function CopyFeedbackButton({
 }
 
 function AppShell() {
-  const { bootstrap, account, currentUser, isAdmin, connectWallet } = useMarketplace();
+  const { bootstrap, account, currentUser, isAdmin, connectWallet, logout } = useMarketplace();
   const navigate = useNavigate();
   const location = useLocation();
   const [search, setSearch] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
+  const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const [searchResults, setSearchResults] = useState<{
     loading: boolean;
     collections: CreatorCollectionDraft[];
@@ -1963,9 +1978,11 @@ function AppShell() {
   );
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const searchFieldRef = useRef<HTMLFormElement | null>(null);
+  const profileMenuRef = useRef<HTMLDivElement | null>(null);
   const shellReady = bootstrap.runtime.services.database && bootstrap.runtime.services.storage;
   const profileHref = account ? `/profile/${account}` : "/profile";
   const accountLabel = account ? shortenAddress(account) : "Connect Wallet";
+  const profileMenuLabel = currentUser?.displayName?.trim() || (account ? shortenAddress(account) : "Wallet");
   const sidebarItems = isAdmin
     ? [...bootstrap.config.site.sidebarNav, { label: "Admin", href: "/admin", icon: "settings" }]
     : bootstrap.config.site.sidebarNav;
@@ -1981,6 +1998,10 @@ function AppShell() {
 
   useEffect(() => {
     setSearchOpen(false);
+  }, [location.pathname, location.search]);
+
+  useEffect(() => {
+    setProfileMenuOpen(false);
   }, [location.pathname, location.search]);
 
   useEffect(() => {
@@ -2052,6 +2073,35 @@ function AppShell() {
   }, [searchOpen]);
 
   useEffect(() => {
+    if (!profileMenuOpen) {
+      return;
+    }
+
+    function handlePointerDown(event: MouseEvent) {
+      const target = event.target;
+      if (!(target instanceof Node)) {
+        return;
+      }
+      if (!profileMenuRef.current?.contains(target)) {
+        setProfileMenuOpen(false);
+      }
+    }
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setProfileMenuOpen(false);
+      }
+    }
+
+    document.addEventListener("mousedown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [profileMenuOpen]);
+
+  useEffect(() => {
     const query = search.trim();
     if (query.length < 2) {
       setSearchResults({
@@ -2103,8 +2153,10 @@ function AppShell() {
   const trimmedSearch = search.trim();
   const normalizedSearch = trimmedSearch.toLowerCase();
   const showSearchResults = searchOpen && trimmedSearch.length >= 2;
+  const isProfileShell = location.pathname.startsWith("/profile") || location.pathname.startsWith("/wallet-");
   const shellClassName = [
     "appShell",
+    isProfileShell ? "profileShell" : "",
     sidebarExpanded ? "sidebarExpanded" : "",
     mobileSidebarOpen ? "mobileSidebarOpen" : ""
   ]
@@ -2417,20 +2469,73 @@ function AppShell() {
                   <Icon icon="wallet" className="headerBalanceIcon" />
                   <span>$0.00</span>
                 </button>
-                <button
-                  className="headerProfileTrigger"
-                  type="button"
-                  aria-label="Open profile"
-                  onClick={() => navigate(profileHref)}
-                >
-                  <UserAvatar
-                    address={account}
-                    displayName={currentUser?.displayName}
-                    src={currentUser?.avatarUri}
-                    className="userAvatar headerUserAvatar"
-                  />
-                  <Icon icon="chevron-down" className="headerProfileChevron" />
-                </button>
+                <div className="headerProfileMenuWrap" ref={profileMenuRef}>
+                  <button
+                    className={profileMenuOpen ? "headerProfileTrigger isOpen" : "headerProfileTrigger"}
+                    type="button"
+                    aria-label="Open account menu"
+                    aria-haspopup="menu"
+                    aria-expanded={profileMenuOpen}
+                    aria-controls="header-account-menu"
+                    onClick={() => setProfileMenuOpen((open) => !open)}
+                  >
+                    <UserAvatar
+                      address={account}
+                      displayName={currentUser?.displayName}
+                      src={currentUser?.avatarUri}
+                      className="userAvatar headerUserAvatar"
+                    />
+                    <Icon icon="chevron-down" className="headerProfileChevron" />
+                  </button>
+
+                  {profileMenuOpen ? (
+                    <div className="headerProfileMenu" id="header-account-menu" role="menu" aria-label="Account menu">
+                      <div className="headerProfileMenuHeader">
+                        <UserAvatar
+                          address={account}
+                          displayName={currentUser?.displayName}
+                          src={currentUser?.avatarUri}
+                          className="userAvatar headerProfileMenuAvatar"
+                        />
+                        <div className="headerProfileMenuCopy">
+                          <strong>{profileMenuLabel}</strong>
+                          <span>{account ? shortenAddress(account) : "Wallet session"}</span>
+                        </div>
+                      </div>
+                      <button
+                        className="headerProfileMenuItem"
+                        type="button"
+                        role="menuitem"
+                        onClick={() => {
+                          setProfileMenuOpen(false);
+                          navigate(profileHref);
+                        }}
+                      >
+                        <span className="headerProfileMenuItemCopy">
+                          <strong>View profile</strong>
+                          <small>Open your account page</small>
+                        </span>
+                        <Icon icon="chevron-right" className="microIcon" />
+                      </button>
+                      <button
+                        className="headerProfileMenuItem danger"
+                        type="button"
+                        role="menuitem"
+                        onClick={() => {
+                          setProfileMenuOpen(false);
+                          logout();
+                          navigate("/");
+                        }}
+                      >
+                        <span className="headerProfileMenuItemCopy">
+                          <strong>Log out</strong>
+                          <small>Disconnect this selected account</small>
+                        </span>
+                        <Icon icon="x" className="microIcon" />
+                      </button>
+                    </div>
+                  ) : null}
+                </div>
               </div>
             ) : (
               <>
@@ -3962,8 +4067,8 @@ function ActivityPage() {
   return (
     <DataState state={state}>
       {(data) => (
-        <div className="darkPage">
-          <section className="pagePanel">
+        <div className="darkPage activityPage">
+          <section className="pagePanel activityPageSurface">
             <SectionHeader title="Activity" subtitle="Track listings, sales, and transfers" />
             <div className="collectionsToolbar">
               <div className="chipRow">
@@ -3979,7 +4084,7 @@ function ActivityPage() {
                 ))}
               </div>
             </div>
-            <div className="activityFeedList">
+            <div className="activityFeedList activityPageFeed">
               {data.activities.length === 0 ? (
                 <AmbientEmptyState
                   variant="rows"
@@ -8707,7 +8812,15 @@ function ItemModalPage() {
                     </div>
                     {data.liveTradingAvailable ? (
                       <button
-                        className="primaryCta fullWidth"
+                        className={
+                          !account
+                            ? "primaryCta fullWidth"
+                            : data.item.listed && sameAddress(account, data.item.seller)
+                            ? "primaryCta fullWidth danger"
+                            : data.item.listed
+                              ? "primaryCta fullWidth success"
+                              : "primaryCta fullWidth"
+                        }
                         type="button"
                         disabled={
                           listingSubmitting ||
@@ -9185,6 +9298,10 @@ function CreatorPage() {
         const showToolbar = activeTab !== "portfolio";
         const showViewControls = ["galleries", "items", "listings"].includes(activeTab);
         const showProfileSidebar = activeTab === "items";
+        const hasProfileItemFilters = query.trim().length > 0 || statusFilter !== "all" || collectionFilter !== "all";
+        const hideProfileActionDock =
+          (activeTab === "items" && sortedItems.length === 0) ||
+          (activeTab === "listings" && sortedListings.length === 0);
         const filterCollections = profileData.galleries
           .filter((gallery) => matchesCollectionQuery(gallery.collectionName, gallery.creatorName))
           .sort((left, right) => left.collectionName.localeCompare(right.collectionName));
@@ -9444,9 +9561,35 @@ function CreatorPage() {
                   <ProfileItemsTab
                     items={sortedItems}
                     view={view}
-                    emptyArtwork={buildProfileEmptyArtwork("items")}
+                    emptyEyebrow="Items"
                     emptyTitle="No items found"
-                    emptyCopy="Discover new collections on OpenSea"
+                    emptyCopy={
+                      hasProfileItemFilters
+                        ? "Try clearing the current search or filters to bring your collectibles back into view."
+                        : isOwnProfile
+                          ? "Mint into one of your collections or collect an NFT, and your items will show up here."
+                          : "This wallet does not have any visible items yet."
+                    }
+                    emptyActions={
+                      <>
+                        {hasProfileItemFilters ? (
+                          <button
+                            className="actionButton muted"
+                            type="button"
+                            onClick={() => updateParams(params, setParams, { q: "", status: "all", collection: "all" })}
+                          >
+                            Clear filters
+                          </button>
+                        ) : null}
+                        <button
+                          className="actionButton secondary"
+                          type="button"
+                          onClick={() => navigate(isOwnProfile ? "/create" : "/collections")}
+                        >
+                          {isOwnProfile ? "Create NFT" : "Explore collections"}
+                        </button>
+                      </>
+                    }
                     renderGridCard={(item) => <ItemGridCard key={item.id} item={item} />}
                   />
                 </div>
@@ -9476,6 +9619,31 @@ function CreatorPage() {
             {activeTab === "listings" ? (
               <ProfileListingsTab
                 items={sortedListings}
+                view={view}
+                emptyActions={
+                  <>
+                    {query.trim().length > 0 ? (
+                      <button
+                        className="actionButton muted"
+                        type="button"
+                        onClick={() => updateParams(params, setParams, { q: "" })}
+                      >
+                        Clear search
+                      </button>
+                    ) : null}
+                    <button
+                      className="actionButton secondary"
+                      type="button"
+                      onClick={() =>
+                        isOwnProfile && profileData.items.length === 0
+                          ? navigate("/create")
+                          : updateParams(params, setParams, { tab: "items" })
+                      }
+                    >
+                      {isOwnProfile && profileData.items.length === 0 ? "Create NFT" : "View items"}
+                    </button>
+                  </>
+                }
                 renderGridCard={(item) => <ItemGridCard key={item.id} item={item} />}
               />
             ) : null}
@@ -9494,34 +9662,36 @@ function CreatorPage() {
               />
             ) : null}
 
-            <div className="profileActionDock">
-              <div className="profileActionGroup">
-                <button className="actionButton secondary" type="button" onClick={() => navigate("/create")}>
-                  List items
-                </button>
+            {!hideProfileActionDock ? (
+              <div className="profileActionDock">
+                <div className="profileActionGroup">
+                  <button className="actionButton secondary" type="button" onClick={() => navigate("/create")}>
+                    List items
+                  </button>
+                  <button
+                    className="actionButton muted"
+                    type="button"
+                    onClick={() => updateParams(params, setParams, { tab: "listings" })}
+                  >
+                    Cancel listings
+                  </button>
+                  <button
+                    className="actionButton muted"
+                    type="button"
+                    onClick={() => updateParams(params, setParams, { tab: "offers" })}
+                  >
+                    Accept offers
+                  </button>
+                </div>
                 <button
-                  className="actionButton muted"
+                  className="actionButton secondary"
                   type="button"
-                  onClick={() => updateParams(params, setParams, { tab: "listings" })}
+                  onClick={() => navigate(isOwnProfile ? (activeTab === "created" ? "/create/collection" : "/create") : "/collections")}
                 >
-                  Cancel listings
-                </button>
-                <button
-                  className="actionButton muted"
-                  type="button"
-                  onClick={() => updateParams(params, setParams, { tab: "offers" })}
-                >
-                  Accept offers
+                  {isOwnProfile ? (activeTab === "created" ? "Create collection" : "Create NFT") : "Create gallery"}
                 </button>
               </div>
-              <button
-                className="actionButton secondary"
-                type="button"
-                onClick={() => navigate(isOwnProfile ? (activeTab === "created" ? "/create/collection" : "/create") : "/collections")}
-              >
-                {isOwnProfile ? (activeTab === "created" ? "Create collection" : "Create NFT") : "Create gallery"}
-              </button>
-            </div>
+            ) : null}
           </div>
         );
       }}
