@@ -120,6 +120,10 @@ type ItemTrait = {
   type: string;
   value: string;
   rarity: string;
+  count?: number;
+  percent?: number;
+  floorDisplay?: string;
+  tone?: "blue" | "amber" | "neutral";
 };
 
 type ItemRecord = {
@@ -1137,6 +1141,49 @@ function rarityLabel(index: number, total: number) {
   return `${((1 / total) * 100).toFixed(1)}% have this trait`;
 }
 
+function traitTone(percent: number): "blue" | "amber" | "neutral" {
+  if (percent < 1) {
+    return "amber";
+  }
+  if (percent <= 15) {
+    return "blue";
+  }
+  return "neutral";
+}
+
+function enrichItemTraits(
+  item: ItemRecord,
+  collectionItems: ItemRecord[],
+  fallbackFloorDisplay: string
+): ItemTrait[] {
+  if (item.traits.length === 0) {
+    return item.traits;
+  }
+
+  const total = Math.max(collectionItems.length, 1);
+  const counts = new Map<string, number>();
+
+  for (const entry of collectionItems) {
+    for (const trait of entry.traits) {
+      const key = `${trait.type.trim().toLowerCase()}::${trait.value.trim().toLowerCase()}`;
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
+  }
+
+  return item.traits.map((trait) => {
+    const key = `${trait.type.trim().toLowerCase()}::${trait.value.trim().toLowerCase()}`;
+    const count = counts.get(key) ?? 1;
+    const percent = (count / total) * 100;
+    return {
+      ...trait,
+      count,
+      percent,
+      floorDisplay: fallbackFloorDisplay,
+      tone: traitTone(percent)
+    };
+  });
+}
+
 const ZeroAddressLike = "0x0000000000000000000000000000000000000000";
 
 type MarketState = {
@@ -1945,24 +1992,28 @@ export async function getItemData(contract: string, tokenId: string) {
       return null;
     }
 
+    const enrichedItem = {
+      ...item,
+      traits: enrichItemTraits(item, detail.items, detail.collection.floorDisplay)
+    };
     const itemActivity = detail.activities.filter((entry) => entry.itemId === tokenId).slice(0, 20);
-    const ownerLabel = item.listed
-      ? `Listed by ${shortenAddress(item.seller ?? item.ownerAddress)}`
-      : `Owned by ${shortenAddress(item.ownerAddress)}`;
+    const ownerLabel = enrichedItem.listed
+      ? `Listed by ${shortenAddress(enrichedItem.seller ?? enrichedItem.ownerAddress)}`
+      : `Owned by ${shortenAddress(enrichedItem.ownerAddress)}`;
 
     return {
       presentation: "modal" as const,
-      item,
+      item: enrichedItem,
       collection: detail.collection,
       activity: itemActivity,
       relatedItems: detail.items.filter((entry) => entry.tokenId !== tokenId).slice(0, 6),
-      mediaStrip: uniqueMediaStrip([item.imageUrl, ...item.thumbnailUrls]).slice(0, 8),
+      mediaStrip: uniqueMediaStrip([enrichedItem.imageUrl, ...enrichedItem.thumbnailUrls]).slice(0, 8),
       detailTabs: ["Details", "Orders", "Activity"],
       defaultTab: "Details",
       metaBadges: [
         creatorCollection.symbol.toUpperCase(),
         creatorCollection.chainName.toUpperCase(),
-        `TOKEN #${tokenId}`
+        `#${tokenId}`
       ],
       ownerLabel,
       backHref: `/collection/${creatorCollection.slug}`,
@@ -1970,11 +2021,11 @@ export async function getItemData(contract: string, tokenId: string) {
       buyPanel: {
         topOffer: "No offers",
         collectionFloor: detail.collection.floorDisplay,
-        rarity: item.rankDisplay ?? `#${tokenId}`,
-        lastSale: item.lastSaleDisplay,
-        price: item.currentPriceDisplay,
+        rarity: enrichedItem.rankDisplay ?? `#${tokenId}`,
+        lastSale: enrichedItem.lastSaleDisplay,
+        price: enrichedItem.currentPriceDisplay,
         usd: `Settles in ${nodeConfig.network.nativeCurrency.symbol}`,
-        buttonLabel: item.listed ? "Buy now" : "List item"
+        buttonLabel: enrichedItem.listed ? "Buy now" : "List item"
       },
       liveTradingAvailable: runtimeState.contracts.marketplace
     };
@@ -1991,24 +2042,28 @@ export async function getItemData(contract: string, tokenId: string) {
     return null;
   }
 
+  const enrichedItem = {
+    ...item,
+    traits: enrichItemTraits(item, state.items, state.collection.floorDisplay)
+  };
   const itemActivity = state.activities.filter((entry) => entry.itemId === tokenId).slice(0, 20);
-  const ownerLabel = item.listed
-    ? `Listed by ${shortenAddress(listing?.seller ?? nft?.ownerAddress ?? item.ownerAddress)}`
-    : `Owned by ${shortenAddress(item.ownerAddress)}`;
+  const ownerLabel = enrichedItem.listed
+    ? `Listed by ${shortenAddress(listing?.seller ?? nft?.ownerAddress ?? enrichedItem.ownerAddress)}`
+    : `Owned by ${shortenAddress(enrichedItem.ownerAddress)}`;
 
   return {
     presentation: "modal" as const,
-    item,
+    item: enrichedItem,
     collection: state.collection,
     activity: itemActivity,
     relatedItems: state.items.filter((entry) => entry.tokenId !== tokenId).slice(0, 6),
-    mediaStrip: uniqueMediaStrip([item.imageUrl, ...item.thumbnailUrls]).slice(0, 8),
+    mediaStrip: uniqueMediaStrip([enrichedItem.imageUrl, ...enrichedItem.thumbnailUrls]).slice(0, 8),
     detailTabs: ["Details", "Orders", "Activity"],
     defaultTab: "Details",
     metaBadges: [
       nodeConfig.contracts.collection.symbol.toUpperCase(),
       nodeConfig.network.chainName.toUpperCase(),
-      `TOKEN #${tokenId}`
+      `#${tokenId}`
     ],
     ownerLabel,
     backHref: `/collection/${collectionSlug}`,
@@ -2016,11 +2071,11 @@ export async function getItemData(contract: string, tokenId: string) {
     buyPanel: {
       topOffer: "Not supported",
       collectionFloor: state.collection.floorDisplay,
-      rarity: item.rankDisplay ?? `#${tokenId}`,
-      lastSale: item.lastSaleDisplay,
-      price: item.currentPriceDisplay,
+      rarity: enrichedItem.rankDisplay ?? `#${tokenId}`,
+      lastSale: enrichedItem.lastSaleDisplay,
+      price: enrichedItem.currentPriceDisplay,
       usd: `Settles in ${nodeConfig.network.nativeCurrency.symbol}`,
-      buttonLabel: item.listed ? "Buy now" : "List item"
+      buttonLabel: enrichedItem.listed ? "Buy now" : "List item"
     },
     liveTradingAvailable: runtimeState.contracts.collection && runtimeState.contracts.marketplace
   };

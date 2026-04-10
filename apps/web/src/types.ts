@@ -108,6 +108,10 @@ export type ItemTrait = {
   type: string;
   value: string;
   rarity: string;
+  count?: number;
+  percent?: number;
+  floorDisplay?: string;
+  tone?: "blue" | "amber" | "neutral";
 };
 
 export type ItemRecord = {

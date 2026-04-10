@@ -2,9 +2,11 @@ import type { ReactNode } from "react";
 
 import { assetUrl } from "../../lib/presentation";
 import type { ProfileSummary } from "../../types";
+import UserAvatar from "../UserAvatar";
 
 type ProfileHeroProps = {
   profile: ProfileSummary;
+  profileAddress?: string;
   profileLabel: string;
   profileTag: string;
   usdValue: string;
@@ -12,17 +14,20 @@ type ProfileHeroProps = {
   tokenPercent: string;
   titleActions?: ReactNode;
   statAction?: ReactNode;
+  avatarSrc?: string;
 };
 
 export default function ProfileHero({
   profile,
+  profileAddress,
   profileLabel,
   profileTag,
   usdValue,
   nftPercent,
   tokenPercent,
   titleActions,
-  statAction
+  statAction,
+  avatarSrc
 }: ProfileHeroProps) {
   return (
     <section className="profileHeroSurface">
@@ -30,7 +35,13 @@ export default function ProfileHero({
       <div className="profileHeroShade" />
       <div className="profileHeroInner">
         <div className="profileHeroIdentity">
-          <img className="profileHeroAvatar" src={assetUrl(profile.avatarUrl)} alt={profile.name} />
+          <UserAvatar
+            address={profileAddress || profile.slug || profile.name}
+            displayName={profileLabel}
+            src={avatarSrc ?? profile.avatarUrl}
+            className="userAvatar profileHeroAvatar"
+            alt={profileLabel}
+          />
           <div className="profileTitleBlock">
             <div className="profileTitleRow">
               <h1>{profileLabel}</h1>
