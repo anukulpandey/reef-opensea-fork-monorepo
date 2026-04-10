@@ -565,9 +565,28 @@ button {
   margin-left: auto;
 }
 
+.mobileHeaderBrand,
+.mobileSearchButton,
 .mobileSidebarToggle,
 .mobileSidebarBackdrop {
   display: none;
+}
+
+.mobileHeaderBrand {
+  border: none;
+  background: transparent;
+  color: #fff;
+  align-items: center;
+  gap: 10px;
+  padding: 0;
+  font-size: 17px;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+}
+
+.mobileHeaderBrandBadge {
+  width: 28px;
+  height: 28px;
 }
 
 .headerActionRail {
@@ -7290,6 +7309,60 @@ button {
   flex-wrap: wrap;
 }
 
+.collectionItemsEmptyState {
+  min-height: 320px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 28px;
+  text-align: center;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: 14px;
+  background: linear-gradient(180deg, rgba(19, 22, 27, 0.92), rgba(16, 19, 23, 0.96));
+}
+
+.collectionItemsEmptyEyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: rgba(255, 255, 255, 0.56);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.collectionItemsEmptyEyebrow svg {
+  width: 14px;
+  height: 14px;
+}
+
+.collectionItemsEmptyState h3 {
+  margin: 0;
+  color: var(--text);
+  font-size: 31px;
+  line-height: 1.06;
+  letter-spacing: -0.03em;
+}
+
+.collectionItemsEmptyState p {
+  max-width: 500px;
+  margin: 0;
+  color: var(--muted);
+  font-size: 15px;
+  line-height: 1.55;
+}
+
+.collectionItemsEmptyActions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px;
+  margin-top: 6px;
+}
+
 .collectionTraitTypeList {
   display: flex;
   flex-direction: column;
@@ -8316,9 +8389,17 @@ button {
   overflow: auto;
 }
 
+.modalArtworkRail {
+  width: min(100%, 700px);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 0;
+}
+
 .modalArtworkStage {
   position: relative;
-  width: min(100%, 700px);
+  width: 100%;
   aspect-ratio: 1 / 1;
   min-width: 0;
   padding: 0;
@@ -8329,6 +8410,7 @@ button {
   align-items: center;
   justify-content: center;
   overflow: hidden;
+  transition: width 0.22s ease, height 0.22s ease, border-radius 0.22s ease, box-shadow 0.22s ease;
 }
 
 .modalArtworkStage::before {
@@ -8343,6 +8425,11 @@ button {
   border-radius: 0;
   background: #101214;
   box-shadow: none;
+  transition: border-radius 0.22s ease;
+}
+
+.mobileArtworkSummary {
+  display: none;
 }
 
 .listingComposerOverlay {
@@ -11648,29 +11735,48 @@ button {
 
 @media (max-width: 640px) {
   .topHeader {
-    padding: 8px 10px;
-    gap: 8px;
+    min-height: 56px;
+    padding: 10px 12px;
+    gap: 10px;
+    flex-wrap: nowrap;
+    align-items: center;
   }
 
   .headerActions {
-    overflow-x: auto;
-    scrollbar-width: none;
-  }
-
-  .headerActions::-webkit-scrollbar {
-    display: none;
+    width: 100%;
+    gap: 10px;
+    overflow: visible;
   }
 
   .headerActionRail {
-    flex: 1 1 auto;
+    flex: 0 1 auto;
     min-width: 0;
+    margin-left: auto;
+    gap: 10px;
   }
 
-  .headerChestButton span:last-child {
-    max-width: 78px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+  .searchField {
+    display: none;
+  }
+
+  .mobileHeaderBrand,
+  .mobileSearchButton {
+    display: inline-flex;
+  }
+
+  .mobileHeaderBrand {
+    margin-right: auto;
+  }
+
+  .mobileSearchButton {
+    width: 34px;
+    height: 34px;
+    justify-content: center;
+  }
+
+  .headerChestButton,
+  .headerIconButton[aria-label="Marketplace activity"] {
+    display: none;
   }
 
   .headerBalanceButton span {
@@ -11686,6 +11792,10 @@ button {
 
   .headerProfileChevron {
     display: none;
+  }
+
+  .headerProfileTrigger {
+    margin-left: 0;
   }
 
   .rewardsCampaignPanel,
@@ -11723,12 +11833,55 @@ button {
   }
 
   .pageViewport {
-    padding-top: calc(var(--header) + 42px);
+    padding-top: calc(var(--header) + 14px);
     padding-inline: 10px;
   }
 
+  .profilePage .collectionToolbar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
+
+  .profilePage .collectionToolbar > .chipRow {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .profilePage .collectionToolbar > .chipRow:first-child {
+    flex-wrap: nowrap;
+    gap: 8px;
+  }
+
+  .profilePage .collectionToolbar > .chipRow:first-child .inlineSearch {
+    min-width: 0;
+    flex: 1 1 auto;
+  }
+
+  .profilePage .collectionToolbar > .chipRow:last-child {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    gap: 8px;
+    align-items: stretch;
+  }
+
+  .profilePage .collectionToolbar > .chipRow:last-child > .chip,
+  .profilePage .collectionToolbar > .chipRow:last-child > .iconChip {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .profilePage .collectionToolbar > .chipRow:last-child > .iconChip:nth-of-type(n + 4) {
+    display: none;
+  }
+
+  .profilePage .collectionToolbar > .chipRow:last-child > .chip {
+    min-width: 0;
+    padding-inline: 12px;
+  }
+
   .topHeader {
-    padding-inline: 10px;
+    padding-inline: 12px;
   }
 
   .heroOverlay h1,
@@ -11737,6 +11890,178 @@ button {
   .titleCluster h1,
   .profileTitleRow h1 {
     font-size: 24px;
+  }
+
+  .collectionHeroSurface {
+    min-height: 300px;
+    border-radius: 14px;
+  }
+
+  .collectionHeroOverlay {
+    padding: 14px 14px 16px;
+    flex-direction: column;
+    align-items: stretch;
+    justify-content: flex-end;
+    gap: 12px;
+  }
+
+  .collectionIdentityBlock {
+    align-items: flex-start;
+    gap: 12px;
+  }
+
+  .collectionAvatarLarge {
+    width: 52px;
+    height: 52px;
+    border-radius: 10px;
+  }
+
+  .collectionIdentityBlock > div {
+    min-width: 0;
+    flex: 1 1 auto;
+  }
+
+  .collectionTitleRow {
+    gap: 8px;
+    align-items: center;
+  }
+
+  .collectionTitleRow h1 {
+    font-size: 18px;
+    line-height: 1.08;
+  }
+
+  .collectionTitleRow .ghostIcon {
+    width: 30px;
+    height: 30px;
+    border-radius: 8px;
+  }
+
+  .collectionTitleRow .ghostIcon svg {
+    width: 14px;
+    height: 14px;
+  }
+
+  .collectionTitleRow .ghostIcon:nth-of-type(n + 4) {
+    display: none;
+  }
+
+  .collectionTitleRow .verifiedBadge {
+    width: 16px;
+    height: 16px;
+  }
+
+  .collectionItemsEmptyState {
+    min-height: 220px;
+    padding: 20px 16px;
+  }
+
+  .collectionItemsEmptyState h3 {
+    font-size: 24px;
+  }
+
+  .collectionItemsEmptyState p {
+    font-size: 14px;
+  }
+
+  .collectionIdentityBlock .badgeRow {
+    gap: 6px;
+    margin-top: 8px;
+  }
+
+  .collectionIdentityBlock .heroBadge {
+    padding: 4px 7px;
+    border-radius: 7px;
+    font-size: 10px;
+    letter-spacing: 0.03em;
+  }
+
+  .heroMetricRail {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px 12px;
+    align-items: stretch;
+  }
+
+  .heroMetricRail article {
+    min-width: 0;
+    text-align: left;
+  }
+
+  .heroMetricRail article strong {
+    margin-top: 6px;
+    font-size: 16px;
+  }
+
+  .heroMetricRail .ghostIcon.enlarge {
+    display: none;
+  }
+
+  .collectionScrollChrome {
+    margin-top: 8px;
+  }
+
+  .collectionPage.collectionPageScrolled .collectionScrollHeader {
+    padding: 10px 0 12px;
+  }
+
+  .collectionStickyIdentity {
+    gap: 10px;
+  }
+
+  .collectionStickyAvatar {
+    width: 38px;
+    height: 38px;
+    border-radius: 8px;
+  }
+
+  .collectionStickyTitleRow {
+    gap: 8px;
+  }
+
+  .collectionStickyTitleRow h2 {
+    font-size: 16px;
+  }
+
+  .collectionStickyActions {
+    gap: 6px;
+    margin-left: 0;
+  }
+
+  .collectionStickyActions .ghostIcon {
+    width: 28px;
+    height: 28px;
+    border-radius: 8px;
+  }
+
+  .collectionStickyActions .ghostIcon:nth-of-type(n + 4) {
+    display: none;
+  }
+
+  .collectionStickyBadgeRow {
+    gap: 6px;
+  }
+
+  .collectionStickyBadgeRow .heroBadge {
+    padding: 3px 7px;
+    font-size: 9px;
+  }
+
+  .collectionTabBar {
+    padding-top: 10px;
+    overflow-x: auto;
+    scrollbar-width: none;
+    gap: 14px;
+  }
+
+  .collectionTabBar::-webkit-scrollbar {
+    display: none;
+  }
+
+  .collectionTabBar .tabLink {
+    white-space: nowrap;
+    padding-bottom: 8px;
+    font-size: 12px;
   }
 
   .heroMetrics.overlay,
@@ -11804,6 +12129,100 @@ button {
 
   .activityFeedValue {
     font-size: 18px;
+  }
+
+  .itemModalBody {
+    display: block;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+
+  .mediaColumn {
+    position: sticky;
+    top: 0;
+    z-index: 3;
+    min-height: auto;
+    padding: 12px;
+    justify-content: flex-start;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    background: rgba(20, 22, 24, 0.96);
+    backdrop-filter: blur(14px);
+    overflow: visible;
+  }
+
+  .modalArtworkRail {
+    width: 100%;
+    justify-content: flex-start;
+    gap: 0;
+  }
+
+  .modalArtworkStage {
+    width: 100%;
+    max-width: none;
+    min-height: 0;
+    border-radius: 10px;
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.04);
+  }
+
+  .mobileArtworkSummary {
+    display: flex;
+    max-width: 0;
+    min-width: 0;
+    flex-direction: column;
+    justify-content: center;
+    gap: 4px;
+    opacity: 0;
+    overflow: hidden;
+    transform: translateX(-8px);
+    transition: max-width 0.22s ease, opacity 0.18s ease, transform 0.22s ease, margin-left 0.22s ease;
+    pointer-events: none;
+  }
+
+  .mobileArtworkSummary strong {
+    color: var(--text);
+    font-size: 15px;
+    font-weight: 620;
+    line-height: 1.1;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .mobileArtworkSummary span {
+    color: rgba(255, 255, 255, 0.62);
+    font-size: 11px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .itemModal.mobileArtCollapsed .modalArtworkRail {
+    align-items: center;
+    gap: 12px;
+  }
+
+  .itemModal.mobileArtCollapsed .modalArtworkStage {
+    width: 56px;
+    height: 56px;
+    aspect-ratio: auto;
+    border-radius: 12px;
+    flex: 0 0 56px;
+  }
+
+  .itemModal.mobileArtCollapsed .modalArtwork {
+    border-radius: 12px;
+  }
+
+  .itemModal.mobileArtCollapsed .mobileArtworkSummary {
+    max-width: 190px;
+    opacity: 1;
+    transform: translateX(0);
+    margin-left: 0;
+  }
+
+  .detailsColumn {
+    padding: 14px 16px 20px;
+    overflow: visible;
   }
 
   .dropDetailContent {
@@ -11930,52 +12349,243 @@ button {
     font-size: 10px;
   }
 
+  .discoverCollectionsTable,
+  .collectionsMarketTable {
+    gap: 10px;
+  }
+
+  .discoverCollectionsTableHeader,
+  .collectionsMarketHeader {
+    display: none;
+  }
+
+  .discoverCollectionsTableRow,
+  .collectionsMarketRow {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+    margin: 0 0 10px;
+    padding: 12px;
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 14px;
+    background: rgba(17, 20, 24, 0.96);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.02);
+  }
+
+  .discoverCollectionsTableRow .starSlot,
+  .collectionsMarketRow .collectionsStarSlot {
+    display: none;
+  }
+
+  .discoverCollectionsTableRow .discoverCollectionIdentity,
+  .collectionsMarketRow .collectionsMarketIdentity {
+    grid-column: 1 / -1;
+    gap: 10px;
+  }
+
+  .discoverCollectionsTableRow .collectionIdentity img,
+  .collectionsMarketRow .collectionsMarketIdentity img {
+    width: 42px;
+    height: 42px;
+    border-radius: 10px;
+  }
+
+  .discoverCollectionNameCell strong,
+  .collectionsMarketTitleRow strong {
+    font-size: 13px;
+  }
+
+  .collectionsMarketIdentityText p {
+    white-space: normal;
+  }
+
+  .discoverCollectionsTableRow > span[data-label],
+  .collectionsMarketRow > span[data-label] {
+    justify-self: stretch;
+    text-align: left;
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+    padding: 10px 11px;
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    border-radius: 12px;
+    background: rgba(20, 24, 29, 0.92);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.02);
+  }
+
+  .discoverCollectionsTableRow > span[data-label]::before,
+  .collectionsMarketRow > span[data-label]::before {
+    content: attr(data-label);
+    color: rgba(255, 255, 255, 0.52);
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    font-family: inherit;
+  }
+
   .profileHeroSurface {
-    min-height: 224px;
+    min-height: 300px;
+    margin: -14px -10px 0;
   }
 
   .profileHeroBanner {
-    height: 224px;
+    height: 300px;
+    opacity: 0.16;
+    filter: saturate(0.84) blur(0.6px);
   }
 
   .profileHeroInner {
-    padding: 16px 14px 14px;
+    inset: auto 0 0;
+    padding: 112px 16px 14px;
+    gap: 12px;
+    align-items: stretch;
+  }
+
+  .profileHeroIdentity {
+    flex-direction: row;
+    align-items: flex-end;
+    gap: 14px;
+    width: 100%;
   }
 
   .profileHeroAvatar {
-    width: 72px;
-    height: 72px;
-    transform: translateY(18px);
+    width: 64px;
+    height: 64px;
+    border-width: 4px;
+    transform: none;
   }
 
   .profileTitleDivider {
-    height: 24px;
+    height: 18px;
+  }
+
+  .profileTitleBlock {
+    flex: 1 1 auto;
+    min-width: 0;
+    padding-bottom: 0;
   }
 
   .profileHeroMeta {
-    flex-wrap: wrap;
-    gap: 10px;
-    margin-top: 10px;
+    gap: 8px;
+    margin-top: 6px;
+  }
+
+  .profileHeroBio {
+    display: none;
   }
 
   .profileHeroStats {
     width: 100%;
-    justify-content: space-between;
-    padding-bottom: 2px;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 10px;
+    padding-top: 12px;
+    padding-bottom: 0;
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
   }
 
   .profileHeroStats article {
     min-width: 0;
-    padding-left: 10px;
-    margin-left: 10px;
+    padding-left: 0;
+    margin-left: 0;
+    border-left: none;
+    text-align: left;
+  }
+
+  .profileHeroStats > .ghostIcon {
+    display: none;
+  }
+
+  .profileTitleRow {
+    gap: 10px;
+  }
+
+  .profileTitleRow h1 {
+    font-size: 18px;
+    font-weight: 600;
+    letter-spacing: -0.03em;
+  }
+
+  .profileTitleRow > .copyFeedbackButton,
+  .profileTitleRow > .ghostIcon {
+    width: 30px;
+    height: 30px;
+    border-radius: 8px;
+  }
+
+  .profileTag {
+    padding: 4px 8px;
+    border-radius: 6px;
+    font-size: 10px;
+  }
+
+  .profilePage .profileTabBar {
+    gap: 18px;
+    margin-top: 8px;
+    padding: 8px 0 10px;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .profilePage .profileTabBar::-webkit-scrollbar {
+    display: none;
+  }
+
+  .profilePage .profileTabBar .tabLink {
+    padding-bottom: 9px;
+    font-size: 12px;
+    white-space: nowrap;
   }
 
   .profileFilterRail {
-    padding-bottom: 12px;
+    display: none;
+  }
+
+  .profileWorkspaceLayout {
+    margin-top: 8px;
+    gap: 12px;
+  }
+
+  .profileWorkspaceToolbar {
+    flex-direction: row;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .profileWorkspaceToolbarLead {
+    gap: 8px;
+    flex: 1 1 auto;
+  }
+
+  .profileInlineSearch {
+    min-width: 0;
+    flex: 1 1 auto;
   }
 
   .profileWorkspaceTools {
-    gap: 6px;
+    gap: 8px;
+    flex-wrap: nowrap;
+  }
+
+  .profileWorkspaceTools > :first-child,
+  .profileWorkspaceTools > :nth-child(n + 4) {
+    display: none;
+  }
+
+  .profileRailToggle {
+    width: 34px;
+    min-width: 34px;
+  }
+
+  .profileWorkspaceMetaRow {
+    margin-top: 0;
+  }
+
+  .profileActionDock {
+    display: none;
   }
 
   .profileWorkspaceMain .itemGrid {

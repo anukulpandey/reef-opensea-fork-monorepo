@@ -2381,8 +2381,20 @@ function AppShell() {
             >
               <Icon icon={mobileSidebarOpen ? "x" : "menu"} />
             </button>
+            <button
+              className="mobileHeaderBrand"
+              type="button"
+              aria-label="Go to homepage"
+              onClick={() => navigate("/")}
+            >
+              <OpenSeaBadge className="logoBadge mobileHeaderBrandBadge" />
+              <span>OpenSea</span>
+            </button>
             {account ? (
               <div className="headerActionRail" aria-label="Account actions">
+                <button className="headerIconButton mobileSearchButton" type="button" aria-label="Search" onClick={() => navigate("/collections")}>
+                  <Icon icon="search" />
+                </button>
                 <button className="headerChestButton" type="button" onClick={() => navigate("/rewards")}>
                   <span className="headerChestGlyph" aria-hidden="true">🎁</span>
                   <span>Open Chest</span>
@@ -2422,6 +2434,9 @@ function AppShell() {
               </div>
             ) : (
               <>
+                <button className="headerIconButton mobileSearchButton" type="button" aria-label="Search" onClick={() => navigate("/collections")}>
+                  <Icon icon="search" />
+                </button>
                 <button
                   className="walletLink"
                   onClick={() => {
@@ -3227,12 +3242,12 @@ function CollectionsPage() {
                             </p>
                           </div>
                         </div>
-                        <span className="collectionsMetricValue">{collection.tableMetrics.floor}</span>
-                        <span className={`collectionsMetricValue ${changeClass}`}>{collection.tableMetrics.change}</span>
-                        <span className="collectionsMetricValue">{collection.tableMetrics.topOffer}</span>
-                        <span className="collectionsMetricValue">{collection.tableMetrics.volume}</span>
-                        <span className="collectionsMetricValue">{collection.tableMetrics.sales}</span>
-                        <span className="collectionsMetricValue">{collection.tableMetrics.owners}</span>
+                        <span className="collectionsMetricValue" data-label="Floor price">{collection.tableMetrics.floor}</span>
+                        <span className={`collectionsMetricValue ${changeClass}`} data-label="1D change">{collection.tableMetrics.change}</span>
+                        <span className="collectionsMetricValue" data-label="Top offer">{collection.tableMetrics.topOffer}</span>
+                        <span className="collectionsMetricValue" data-label="1D vol">{collection.tableMetrics.volume}</span>
+                        <span className="collectionsMetricValue" data-label="1D sales">{collection.tableMetrics.sales}</span>
+                        <span className="collectionsMetricValue" data-label="Owners">{collection.tableMetrics.owners}</span>
                       </NavLink>
                     );
                   })}
@@ -7528,6 +7543,14 @@ function CollectionPage({
         const canApplyPrice =
           minPriceDraft.trim() !== minPriceParam.trim() ||
           maxPriceDraft.trim() !== maxPriceParam.trim();
+        const hasCollectionFiltersApplied =
+          normalizedQuery.length > 0 ||
+          statusFilter !== "all" ||
+          rarityMin !== null ||
+          rarityMax !== null ||
+          minPrice !== null ||
+          maxPrice !== null ||
+          marketplaceEnabled;
         const matchesQuery = (item: ItemRecord) => {
           if (!normalizedQuery) {
             return true;
@@ -7628,6 +7651,17 @@ function CollectionPage({
         } as CSSProperties;
         const openCreateNft = () => {
           navigate(`/create${buildQuery({ collection: data.collection.slug })}`);
+        };
+        const clearCollectionFilters = () => {
+          updateParams(params, setParams, {
+            q: "",
+            status: "all",
+            rarityMin: "",
+            rarityMax: "",
+            minPrice: "",
+            maxPrice: "",
+            marketplace: ""
+          });
         };
         const handleStickyTertiaryAction = () => {
           if (normalizedTertiaryAction === "activity") {
@@ -8008,12 +8042,30 @@ function CollectionPage({
                 {(mode === "items" || mode === "explore") ? (
                   visibleItems.length === 0 ? (
                     <section className="pagePanel">
-                      <AmbientEmptyState
-                        variant="cards"
-                        eyebrow="Items"
-                        title="No items to display"
-                        copy="Mint into this collection and the NFTs will start appearing here."
-                      />
+                      <div className="collectionItemsEmptyState">
+                        <span className="collectionItemsEmptyEyebrow">
+                          <Icon icon="grid" />
+                          Items
+                        </span>
+                        <h3>{data.items.length === 0 ? "No items minted yet" : "No items match these filters"}</h3>
+                        <p>
+                          {data.items.length === 0
+                            ? "Mint into this collection and the NFTs will start appearing here."
+                            : "Try clearing the current filters or search terms to bring items back into view."}
+                        </p>
+                        <div className="collectionItemsEmptyActions">
+                          {data.items.length === 0 ? (
+                            <button className="actionButton primary" type="button" onClick={handleStickyPrimaryAction}>
+                              {data.collection.actionBar.primary}
+                            </button>
+                          ) : null}
+                          {hasCollectionFiltersApplied ? (
+                            <button className="actionButton secondary" type="button" onClick={clearCollectionFilters}>
+                              Clear filters
+                            </button>
+                          ) : null}
+                        </div>
+                      </div>
                     </section>
                   ) : (
                     <div className="itemGrid">
@@ -8163,7 +8215,9 @@ function CollectionPage({
               </div>
             </div>
 
-            {bootstrap.runtime.liveTrading && data.collection.showStickyActionBar ? (
+            {bootstrap.runtime.liveTrading &&
+            data.collection.showStickyActionBar &&
+            !((mode === "items" || mode === "explore") && visibleItems.length === 0) ? (
               <div className="stickyActionBar">
                 <button className="actionButton secondary" type="button" onClick={() => void connectWallet()}>
                   {account ? "Wallet connected" : "Connect wallet"}
@@ -8211,16 +8265,23 @@ function ItemModalPage() {
   );
   const [activeTab, setActiveTab] = useState("Details");
   const [traitView, setTraitView] = useState<"grid" | "list">("grid");
+  const [mobileArtworkCollapsed, setMobileArtworkCollapsed] = useState(false);
   const [listingComposerOpen, setListingComposerOpen] = useState(false);
   const [listingPriceInput, setListingPriceInput] = useState("1");
   const [listingSubmitting, setListingSubmitting] = useState(false);
   const listingActionLockRef = useRef(false);
+  const itemModalBodyRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     if (state.data) {
       setActiveTab(state.data.defaultTab);
     }
   }, [state.data]);
+
+  useEffect(() => {
+    setMobileArtworkCollapsed(false);
+    itemModalBodyRef.current?.scrollTo({ top: 0 });
+  }, [contract, tokenId]);
 
   if (!contract || !tokenId) {
     return <PageState message="Missing item identifier." />;
@@ -8536,7 +8597,7 @@ function ItemModalPage() {
 
         return (
           <div className="modalRouteFrame">
-            <div className="itemModal">
+            <div className={mobileArtworkCollapsed ? "itemModal mobileArtCollapsed" : "itemModal"}>
               <div className="itemModalTopBar">
                 <div className="thumbRail">
                   <button className="thumbNav" type="button" onClick={() => navigate(data.backHref)} aria-label="Back to collection">
@@ -8566,10 +8627,23 @@ function ItemModalPage() {
                 </div>
               </div>
 
-              <div className="itemModalBody">
+              <div
+                ref={itemModalBodyRef}
+                className="itemModalBody"
+                onScroll={(event) => {
+                  const nextCollapsed = event.currentTarget.scrollTop > 36;
+                  setMobileArtworkCollapsed((current) => (current === nextCollapsed ? current : nextCollapsed));
+                }}
+              >
                 <div className="mediaColumn">
-                  <div className="modalArtworkStage">
-                    <img className="modalArtwork" src={assetUrl(data.item.imageUrl)} alt={displayTitle} />
+                  <div className="modalArtworkRail">
+                    <div className="modalArtworkStage">
+                      <img className="modalArtwork" src={assetUrl(data.item.imageUrl)} alt={displayTitle} />
+                    </div>
+                    <div className="mobileArtworkSummary" aria-hidden={!mobileArtworkCollapsed}>
+                      <strong>{displayTitle}</strong>
+                      <span>{data.collection.name}</span>
+                    </div>
                   </div>
                 </div>
 
@@ -9483,14 +9557,17 @@ function DiscoverCollectionTableRow({
           {collection.verified ? <OpenSeaBadge className="verifiedBadge small" /> : null}
         </div>
       </div>
-      <span>{collection.tableMetrics.floor}</span>
-      <span className={collection.tableMetrics.change.startsWith("-") ? "negative" : "positive"}>
+      <span data-label="Floor price">{collection.tableMetrics.floor}</span>
+      <span
+        data-label="1D change"
+        className={collection.tableMetrics.change.startsWith("-") ? "negative" : "positive"}
+      >
         {collection.tableMetrics.change}
       </span>
-      <span>{collection.tableMetrics.topOffer}</span>
-      <span>{collection.tableMetrics.volume}</span>
-      <span>{collection.tableMetrics.sales}</span>
-      <span>{collection.tableMetrics.owners}</span>
+      <span data-label="Top offer">{collection.tableMetrics.topOffer}</span>
+      <span data-label="1D vol">{collection.tableMetrics.volume}</span>
+      <span data-label="1D sales">{collection.tableMetrics.sales}</span>
+      <span data-label="Owners">{collection.tableMetrics.owners}</span>
     </NavLink>
   );
 }
