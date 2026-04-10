@@ -1,24 +1,24 @@
 {
   "chainId": 13939,
   "chainName": "Reef Testnet",
-  "rpcUrl": "http://127.0.0.1:8545",
-  "deployer": "0x6dAcaE67EC045B86De16a224b6f27EaC1b047572",
-  "generatedAt": "2026-04-09T16:41:41.561Z",
+  "rpcUrl": "http://34.123.142.246:8545",
+  "deployer": "0x212e2A4545ee7AC59837212F9860DbC245090B6f",
+  "generatedAt": "2026-04-10T11:13:10.318Z",
   "probe": {
     "verified": true,
-    "address": "0x9ff870802be2b769fa4eae4f61b85cf273725760",
-    "txHash": "0xda93a3afb9974de86012047ff82d3790c2176fce58dcfa7444014dd7a81b902f",
-    "blockNumber": 14,
+    "address": "0x5541a42791d53a06b72b8cf0c4756ec0c781f451",
+    "txHash": "0x0c5569a184e3e107c2d644b0402df95ddc3e01337a3246ebfb88b598a31dee92",
+    "blockNumber": 1487407,
     "reason": "Reef returned bytecode for the deployment probe."
   },
   "contracts": {
     "official": {
       "seaport": {
-        "address": "0x8fC9Fe992499cDAa7dF14025f3ADaE385272D8C4",
+        "address": "",
         "verified": false
       },
       "conduitController": {
-        "address": "0xEC163d04A56A4592D9EbFBF42aE9eb5aB5161F0E",
+        "address": "",
         "verified": false
       },
       "seaDrop": {
@@ -36,34 +36,32 @@
     },
     "fallback": {
       "creatorFactory721": {
-        "address": "0x31dc26025d6311e47e43afcc37beb45d49eac33a",
+        "address": "0x5da80f08835b6be25233a8ac7f20593ce277697a",
         "verified": true,
-        "deploymentTxHash": "0x15f488bca322d24b75a8938e5631583d67665e2e1a506017b8b525a7f6cd55cc",
-        "blockNumber": 15
+        "deploymentTxHash": "0xa597e6b5b908a1c7a10be35984696139aef617775b3bc72ee3837912efa3c5d4",
+        "blockNumber": 26
       },
       "editionFactory1155": {
-        "address": "0x75b1ab2b755678d53f3c1ddd7b380941b0b65dc1",
+        "address": "0xf1f7ef041e0602c40b1f92d41afe6a4c9e114027",
         "verified": true,
-        "deploymentTxHash": "0x481ddb5446f6ee0566df6127d9a92d5934ad4b492d86b4cb7b88c09e2e92df1e",
-        "blockNumber": 16
+        "deploymentTxHash": "0x707cd780da6c878cbd64e376a678be9f59520921836bd748bc406072699a406a",
+        "blockNumber": 27
       },
       "marketplace721": {
-        "address": "0x628e09153dbacfb0a4aa7cef0a80c2046019ffb2",
+        "address": "0xdbd5a41a5d1d787c23073fadb234eb2512178248",
         "verified": true,
-        "deploymentTxHash": "0xe2776f8803458b6a1859e1052bc450118a76c9647e533de285fe120c7ff665db",
-        "blockNumber": 17
+        "deploymentTxHash": "0x3f121fda0108b5e31dfef04fafd95510932a640df27cd576b12911db38445e4a",
+        "blockNumber": 28
       },
       "marketplace1155": {
-        "address": "0x5e9d035a4502c1bfa25f1f51fa7bcab2c2d9c1b2",
+        "address": "0xa62efe6d9688ab2c7d19c654713e8f25d8c6dd9e",
         "verified": true,
-        "deploymentTxHash": "0xc17ea33cbb039a3277264def649b361c111d5d0e40313389f7dcac822fdbdbb2",
-        "blockNumber": 18
+        "deploymentTxHash": "0x727b3f56d5cc2e34f8428eb2de139456176dcf7fe087871748001fa01614ef46",
+        "blockNumber": 29
       },
       "dropManager": {
-        "address": "0xc1d2d590f329a05660b20e0a36add9d6fc851c84",
-        "verified": true,
-        "deploymentTxHash": "0x9f5e75b52360c268033229335bb49c02840af97716216c3a7385d0d44a6268e1",
-        "blockNumber": 19
+        "address": "",
+        "verified": false
       }
     }
   },
@@ -73,7 +71,7 @@
       "erc721": {
         "enabled": true,
         "mode": "fallback",
-        "factoryAddress": "0x31dc26025d6311e47e43afcc37beb45d49eac33a",
+        "factoryAddress": "0x5da80f08835b6be25233a8ac7f20593ce277697a",
         "implementationAddress": "",
         "marketplaceMode": "fallback",
         "reason": ""
@@ -81,7 +79,7 @@
       "erc1155": {
         "enabled": true,
         "mode": "fallback",
-        "factoryAddress": "0x75b1ab2b755678d53f3c1ddd7b380941b0b65dc1",
+        "factoryAddress": "0xf1f7ef041e0602c40b1f92d41afe6a4c9e114027",
         "implementationAddress": "",
         "marketplaceMode": "fallback",
         "reason": ""
@@ -91,13 +89,13 @@
       "erc721": {
         "enabled": true,
         "mode": "fallback",
-        "address": "0x628e09153dbacfb0a4aa7cef0a80c2046019ffb2",
+        "address": "0xdbd5a41a5d1d787c23073fadb234eb2512178248",
         "reason": ""
       },
       "erc1155": {
         "enabled": true,
         "mode": "fallback",
-        "address": "0x5e9d035a4502c1bfa25f1f51fa7bcab2c2d9c1b2",
+        "address": "0xa62efe6d9688ab2c7d19c654713e8f25d8c6dd9e",
         "reason": ""
       }
     }

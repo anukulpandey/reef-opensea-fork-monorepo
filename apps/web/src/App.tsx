@@ -23,6 +23,14 @@ import AmbientEmptyState from "./components/AmbientEmptyState";
 import ProfileSetupModal from "./components/ProfileSetupModal";
 import TransactionProgressModal from "./components/TransactionProgressModal";
 import UserAvatar from "./components/UserAvatar";
+import {
+  DetailTabButton,
+  FilterChipButton,
+  GhostIconButton,
+  HeroBadgePill,
+  IconChipButton,
+  SurfaceTabLink
+} from "./components/ui/ControlPrimitives";
 import ProfileHero from "./components/profile/ProfileHero";
 import ProfileTabBar from "./components/profile/ProfileTabBar";
 import ProfileGalleriesTab from "./components/profile/ProfileGalleriesTab";
@@ -268,6 +276,7 @@ type TraitEditorRow = {
 };
 
 type TransactionProgressTone = "processing" | "success" | "error";
+type ToastTone = "info" | "success" | "error";
 
 type TransactionProgressState = {
   title: string;
@@ -276,6 +285,12 @@ type TransactionProgressState = {
   steps: string[];
   activeStep: number;
   tone: TransactionProgressTone;
+};
+
+type ToastRecord = {
+  id: number;
+  message: string;
+  tone: ToastTone;
 };
 
 type WalletSession = {
@@ -294,6 +309,7 @@ type MarketplaceContextValue = {
   status: string;
   actionModal: TransactionProgressState | null;
   connectWallet: () => Promise<void>;
+  logout: () => void;
   getWalletSession: () => Promise<WalletSession | null>;
   setStatus: (value: string) => void;
   showActionModal: (value: Omit<TransactionProgressState, "tone"> & { tone?: TransactionProgressTone }) => void;
@@ -790,6 +806,31 @@ function iconPath(icon: string) {
           <path d="M7 7l10 10M17 7 7 17" />
         </>
       );
+    case "check":
+      return <path d="m6 12.5 4 4 8-9" />;
+    case "plus":
+      return (
+        <>
+          <path d="M12 5v14" />
+          <path d="M5 12h14" />
+        </>
+      );
+    case "info":
+      return (
+        <>
+          <circle cx="12" cy="12" r="8" />
+          <path d="M12 10v5" />
+          <circle cx="12" cy="7.3" r="1" fill="currentColor" stroke="none" />
+        </>
+      );
+    case "alert-circle":
+      return (
+        <>
+          <circle cx="12" cy="12" r="8" />
+          <path d="M12 8v5" />
+          <circle cx="12" cy="16.6" r="1" fill="currentColor" stroke="none" />
+        </>
+      );
     case "star":
       return <path d="m12 4 2.2 4.8 5.3.7-3.8 3.8.9 5.3L12 16.4 7.4 18.6l1-5.3L4.6 9.5l5.2-.7L12 4Z" />;
     case "globe":
@@ -920,6 +961,38 @@ function compact(value: number) {
   return new Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 1 }).format(value);
 }
 
+function formatTraitCount(value: number) {
+  return new Intl.NumberFormat("en-US").format(value);
+}
+
+function parseRankDisplay(value?: string) {
+  const match = value?.match(/\d+/);
+  if (!match) {
+    return null;
+  }
+  const parsed = Number(match[0]);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function parseOptionalNumber(value: string) {
+  const normalized = value.trim();
+  if (!normalized) {
+    return null;
+  }
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function formatTraitPercent(value: number) {
+  if (value >= 10) {
+    return `${Math.round(value)}%`;
+  }
+  if (value >= 1) {
+    return `${value.toFixed(1)}%`;
+  }
+  return `${value.toFixed(2)}%`;
+}
+
 function splitCountdown(durationMs: number) {
   const totalSeconds = Math.max(0, Math.floor(durationMs / 1000));
   const days = Math.floor(totalSeconds / 86_400);
@@ -997,6 +1070,37 @@ function looksLikeShortWalletLabel(value?: string) {
     return false;
   }
   return /^0x[a-f0-9]{4,}\.\.\.[a-f0-9]{4}$/i.test(value.trim());
+}
+
+function resolveToastTone(message: string): ToastTone {
+  if (
+    /(failed|error|unavailable|blocked|required|missing|rejected|invalid|cannot|not configured|not actively|not available|copy failed)/i.test(
+      message
+    )
+  ) {
+    return "error";
+  }
+
+  if (
+    /(copied|saved|connected|created|updated|ready|minted|deployed|completed|cancelled|pinned|archived|purchased|loaded|available)/i.test(
+      message
+    )
+  ) {
+    return "success";
+  }
+
+  return "info";
+}
+
+function toastLabelForTone(tone: ToastTone) {
+  switch (tone) {
+    case "success":
+      return "Success";
+    case "error":
+      return "Action failed";
+    default:
+      return "Heads up";
+  }
 }
 
 function isCreatorCollectionMintable(
@@ -1358,8 +1462,71 @@ export default function App() {
   const [currentUser, setCurrentUser] = useState<SessionUser | null>(null);
   const [profileSetupOpen, setProfileSetupOpen] = useState(false);
   const [profileSetupSaving, setProfileSetupSaving] = useState(false);
-  const [status, setStatus] = useState("Loading marketplace...");
+  const [status, setStatusMessage] = useState("Loading marketplace...");
+  const [toasts, setToasts] = useState<ToastRecord[]>([]);
   const [actionModal, setActionModal] = useState<TransactionProgressState | null>(null);
+  const toastTimersRef = useRef(new Map<number, ReturnType<typeof globalThis.setTimeout>>());
+  const lastToastRef = useRef<{ message: string; at: number } | null>(null);
+  const toastIdRef = useRef(1);
+
+  useEffect(() => {
+    return () => {
+      toastTimersRef.current.forEach((timer) => {
+        globalThis.clearTimeout(timer);
+      });
+      toastTimersRef.current.clear();
+    };
+  }, []);
+
+  function dismissToast(id: number) {
+    const timer = toastTimersRef.current.get(id);
+    if (timer != null) {
+      globalThis.clearTimeout(timer);
+      toastTimersRef.current.delete(id);
+    }
+
+    setToasts((current) => current.filter((toast) => toast.id !== id));
+  }
+
+  function showToast(message: string, tone = resolveToastTone(message)) {
+    const now = Date.now();
+    if (lastToastRef.current && lastToastRef.current.message === message && now - lastToastRef.current.at < 900) {
+      return;
+    }
+    lastToastRef.current = { message, at: now };
+
+    const id = toastIdRef.current;
+    toastIdRef.current += 1;
+
+    setToasts((current) => [...current.slice(-2), { id, message, tone }]);
+
+    const timeoutMs = tone === "error" ? 4600 : tone === "success" ? 3200 : 2600;
+    const timer = globalThis.setTimeout(() => {
+      dismissToast(id);
+    }, timeoutMs);
+    toastTimersRef.current.set(id, timer);
+  }
+
+  function setStatus(value: string) {
+    setStatusMessage(value);
+    showToast(value);
+  }
+
+  function clearStoredWalletSession() {
+    localStorage.removeItem(authTokenStorageKey);
+    localStorage.removeItem(authAddressStorageKey);
+    setAuthToken("");
+    setUserRole("user");
+    setCurrentUser(null);
+    setAccount("");
+    setProfileSetupOpen(false);
+    setActionModal(null);
+  }
+
+  function logout() {
+    clearStoredWalletSession();
+    setStatus("Logged out from wallet session.");
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -1367,7 +1534,7 @@ export default function App() {
       .then((data) => {
         if (!cancelled) {
           setBootstrapState({ loading: false, data });
-          setStatus("Marketplace loaded.");
+          setStatusMessage("Marketplace loaded.");
         }
       })
       .catch((error) => {
@@ -1376,7 +1543,7 @@ export default function App() {
             loading: false,
             error: error instanceof Error ? error.message : "Failed to load bootstrap data"
           });
-          setStatus("Failed to load bootstrap.");
+          setStatusMessage("Failed to load bootstrap.");
         }
       });
 
@@ -1459,11 +1626,7 @@ export default function App() {
         maybeOpenProfileSetup(normalizedUser);
       })
       .catch(() => {
-        localStorage.removeItem(authTokenStorageKey);
-        localStorage.removeItem(authAddressStorageKey);
-        setAuthToken("");
-        setUserRole("user");
-        setCurrentUser(null);
+        clearStoredWalletSession();
       });
   }, []);
 
@@ -1623,6 +1786,7 @@ export default function App() {
         status,
         actionModal,
         connectWallet,
+        logout,
         getWalletSession,
         setStatus,
         showActionModal,
@@ -1677,6 +1841,7 @@ export default function App() {
           onSubmit={saveCurrentUserProfile}
         />
         <TransactionProgressModal state={actionModal} />
+        <ToastViewport toasts={toasts} onDismiss={dismissToast} />
       </>
     </MarketplaceContext.Provider>
   );
@@ -1694,12 +1859,110 @@ function SplashScreen({ message }: { message: string }) {
   );
 }
 
+function ToastViewport({
+  toasts,
+  onDismiss
+}: {
+  toasts: ToastRecord[];
+  onDismiss: (id: number) => void;
+}) {
+  if (toasts.length === 0) {
+    return null;
+  }
+
+  return (
+    <div className="toastViewport" role="status" aria-live="polite" aria-relevant="additions text">
+      {toasts.map((toast) => (
+        <article className={`toastCard tone-${toast.tone}`} key={toast.id}>
+          <span className="toastGlyph" aria-hidden="true">
+            <Icon icon={toast.tone === "error" ? "alert-circle" : toast.tone === "success" ? "check" : "info"} />
+          </span>
+          <div className="toastCopy">
+            <strong>{toastLabelForTone(toast.tone)}</strong>
+            <p>{toast.message}</p>
+          </div>
+          <button
+            className="toastDismiss"
+            type="button"
+            aria-label="Dismiss notification"
+            onClick={() => onDismiss(toast.id)}
+          >
+            <Icon icon="close" />
+          </button>
+        </article>
+      ))}
+    </div>
+  );
+}
+
+function CopyFeedbackButton({
+  value,
+  label,
+  className,
+  ariaLabel,
+  children,
+  copiedChildren,
+  successMessage
+}: {
+  value: string;
+  label: string;
+  className: string;
+  ariaLabel?: string;
+  children?: ReactNode;
+  copiedChildren?: ReactNode;
+  successMessage?: string;
+}) {
+  const { setStatus } = useMarketplace();
+  const [copied, setCopied] = useState(false);
+  const resetTimerRef = useRef<ReturnType<typeof globalThis.setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (resetTimerRef.current != null) {
+        globalThis.clearTimeout(resetTimerRef.current);
+      }
+    };
+  }, []);
+
+  async function handleClick() {
+    try {
+      await copyText(value);
+      setCopied(true);
+      if (resetTimerRef.current != null) {
+        globalThis.clearTimeout(resetTimerRef.current);
+      }
+      resetTimerRef.current = globalThis.setTimeout(() => {
+        setCopied(false);
+        resetTimerRef.current = null;
+      }, 1800);
+      setStatus(successMessage ?? `${label} copied.`);
+    } catch (error) {
+      setCopied(false);
+      setStatus(error instanceof Error ? error.message : `Failed to copy ${label.toLowerCase()}.`);
+    }
+  }
+
+  return (
+    <button
+      className={[className, "copyFeedbackButton", copied ? "isCopied" : ""].filter(Boolean).join(" ")}
+      type="button"
+      aria-label={copied ? `${label} copied` : ariaLabel ?? `Copy ${label.toLowerCase()}`}
+      onClick={() => {
+        void handleClick();
+      }}
+    >
+      {children ? (copied ? copiedChildren ?? children : children) : <Icon icon={copied ? "check" : "copy"} />}
+    </button>
+  );
+}
+
 function AppShell() {
-  const { bootstrap, account, currentUser, isAdmin, connectWallet } = useMarketplace();
+  const { bootstrap, account, currentUser, isAdmin, connectWallet, logout } = useMarketplace();
   const navigate = useNavigate();
   const location = useLocation();
   const [search, setSearch] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
+  const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const [searchResults, setSearchResults] = useState<{
     loading: boolean;
     collections: CreatorCollectionDraft[];
@@ -1710,14 +1973,23 @@ function AppShell() {
     users: []
   });
   const [sidebarExpanded, setSidebarExpanded] = useState(false);
+  const [isMobileViewport, setIsMobileViewport] = useState(() =>
+    typeof window !== "undefined" ? window.matchMedia("(max-width: 900px)").matches : false
+  );
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const searchFieldRef = useRef<HTMLFormElement | null>(null);
+  const profileMenuRef = useRef<HTMLDivElement | null>(null);
   const shellReady = bootstrap.runtime.services.database && bootstrap.runtime.services.storage;
   const profileHref = account ? `/profile/${account}` : "/profile";
   const accountLabel = account ? shortenAddress(account) : "Connect Wallet";
+  const profileMenuLabel = currentUser?.displayName?.trim() || (account ? shortenAddress(account) : "Wallet");
   const sidebarItems = isAdmin
     ? [...bootstrap.config.site.sidebarNav, { label: "Admin", href: "/admin", icon: "settings" }]
     : bootstrap.config.site.sidebarNav;
   const [brandItem, ...navItems] = sidebarItems;
+  const primaryNavItems = navItems.filter((item) => !["/profile", "/support", "/admin"].includes(item.href));
+  const profileNavItem = navItems.find((item) => item.href === "/profile") ?? null;
+  const secondaryNavItems = navItems.filter((item) => item.href === "/support" || item.href === "/admin");
 
   useEffect(() => {
     const params = new URLSearchParams(location.search);
@@ -1727,6 +1999,57 @@ function AppShell() {
   useEffect(() => {
     setSearchOpen(false);
   }, [location.pathname, location.search]);
+
+  useEffect(() => {
+    setProfileMenuOpen(false);
+  }, [location.pathname, location.search]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const media = window.matchMedia("(max-width: 900px)");
+    const handleChange = (event: MediaQueryListEvent) => {
+      setIsMobileViewport(event.matches);
+    };
+
+    setIsMobileViewport(media.matches);
+    media.addEventListener("change", handleChange);
+    return () => {
+      media.removeEventListener("change", handleChange);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!isMobileViewport) {
+      setMobileSidebarOpen(false);
+    }
+  }, [isMobileViewport]);
+
+  useEffect(() => {
+    setMobileSidebarOpen(false);
+  }, [location.pathname, location.search]);
+
+  useEffect(() => {
+    if (!isMobileViewport || !mobileSidebarOpen) {
+      return;
+    }
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setMobileSidebarOpen(false);
+      }
+    }
+
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [isMobileViewport, mobileSidebarOpen]);
 
   useEffect(() => {
     if (!searchOpen) {
@@ -1748,6 +2071,35 @@ function AppShell() {
       document.removeEventListener("mousedown", handlePointerDown);
     };
   }, [searchOpen]);
+
+  useEffect(() => {
+    if (!profileMenuOpen) {
+      return;
+    }
+
+    function handlePointerDown(event: MouseEvent) {
+      const target = event.target;
+      if (!(target instanceof Node)) {
+        return;
+      }
+      if (!profileMenuRef.current?.contains(target)) {
+        setProfileMenuOpen(false);
+      }
+    }
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setProfileMenuOpen(false);
+      }
+    }
+
+    document.addEventListener("mousedown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [profileMenuOpen]);
 
   useEffect(() => {
     const query = search.trim();
@@ -1801,6 +2153,27 @@ function AppShell() {
   const trimmedSearch = search.trim();
   const normalizedSearch = trimmedSearch.toLowerCase();
   const showSearchResults = searchOpen && trimmedSearch.length >= 2;
+  const isProfileShell = location.pathname.startsWith("/profile") || location.pathname.startsWith("/wallet-");
+  const shellClassName = [
+    "appShell",
+    isProfileShell ? "profileShell" : "",
+    sidebarExpanded ? "sidebarExpanded" : "",
+    mobileSidebarOpen ? "mobileSidebarOpen" : ""
+  ]
+    .filter(Boolean)
+    .join(" ");
+
+  function handleSidebarHoverChange(nextExpanded: boolean) {
+    if (!isMobileViewport) {
+      setSidebarExpanded(nextExpanded);
+    }
+  }
+
+  function handleSidebarNavigate() {
+    if (isMobileViewport) {
+      setMobileSidebarOpen(false);
+    }
+  }
 
   function openSearchTarget(target: string) {
     navigate(target);
@@ -1836,22 +2209,23 @@ function AppShell() {
   }
 
   return (
-    <div className={sidebarExpanded ? "appShell sidebarExpanded" : "appShell"}>
+    <div className={shellClassName}>
       <aside
+        id="app-sidebar"
         className="sidebarRail"
-        aria-expanded={sidebarExpanded}
-        onMouseEnter={() => setSidebarExpanded(true)}
+        aria-expanded={isMobileViewport ? mobileSidebarOpen : sidebarExpanded}
+        onMouseEnter={() => handleSidebarHoverChange(true)}
         onMouseLeave={(event) => {
           const activeElement = document.activeElement;
           if (!(activeElement instanceof Node) || !event.currentTarget.contains(activeElement)) {
-            setSidebarExpanded(false);
+            handleSidebarHoverChange(false);
           }
         }}
-        onFocus={() => setSidebarExpanded(true)}
+        onFocus={() => handleSidebarHoverChange(true)}
         onBlur={(event) => {
           const nextFocused = event.relatedTarget;
           if (!(nextFocused instanceof Node) || !event.currentTarget.contains(nextFocused)) {
-            setSidebarExpanded(false);
+            handleSidebarHoverChange(false);
           }
         }}
       >
@@ -1861,6 +2235,7 @@ function AppShell() {
             end={brandItem.href === "/"}
             className="sidebarButton brand"
             aria-label={brandItem.label}
+            onClick={handleSidebarNavigate}
           >
             <span className="sidebarButtonInner">
               <span className="sidebarGlyph brand">
@@ -1875,14 +2250,14 @@ function AppShell() {
         ) : null}
 
         <div className="sidebarNavGroup">
-          <div className="sidebarSectionLabel">Marketplace</div>
-          {navItems.map((item) => (
+          {primaryNavItems.map((item) => (
             <NavLink
               key={item.href}
               to={item.href === "/profile" ? profileHref : item.href}
               end={item.href === "/"}
               className={({ isActive }) => (isActive ? "sidebarButton active" : "sidebarButton")}
               aria-label={item.label}
+              onClick={handleSidebarNavigate}
             >
               <span className="sidebarButtonInner">
                 <span className="sidebarGlyph">
@@ -1893,7 +2268,63 @@ function AppShell() {
             </NavLink>
           ))}
         </div>
+
+        {profileNavItem ? (
+          <div className="sidebarNavGroup sidebarNavGroupSeparated">
+            <NavLink
+              to={profileHref}
+              className={({ isActive }) => (isActive ? "sidebarButton active sidebarButtonProfile" : "sidebarButton sidebarButtonProfile")}
+              aria-label={profileNavItem.label}
+              onClick={handleSidebarNavigate}
+            >
+              <span className="sidebarButtonInner">
+                <span className="sidebarGlyph sidebarGlyphProfile">
+                  <UserAvatar
+                    address={account || profileHref}
+                    displayName={currentUser?.displayName}
+                    src={currentUser?.avatarUri}
+                    className="userAvatar sidebarProfileAvatar"
+                    alt={currentUser?.displayName || "Profile"}
+                  />
+                </span>
+                <span className="sidebarLabel">{profileNavItem.label}</span>
+                <span className="sidebarRowChevron" aria-hidden="true">
+                  <Icon icon="chevron-right" className="sidebarIcon" />
+                </span>
+              </span>
+            </NavLink>
+          </div>
+        ) : null}
+
+        {secondaryNavItems.length ? (
+          <div className="sidebarNavGroup sidebarNavGroupSeparated">
+            {secondaryNavItems.map((item) => (
+              <NavLink
+                key={item.href}
+                to={item.href === "/profile" ? profileHref : item.href}
+                end={item.href === "/"}
+                className={({ isActive }) => (isActive ? "sidebarButton active" : "sidebarButton")}
+                aria-label={item.label}
+                onClick={handleSidebarNavigate}
+              >
+                <span className="sidebarButtonInner">
+                  <span className="sidebarGlyph">
+                    <Icon icon={item.icon} className="sidebarIcon" />
+                  </span>
+                  <span className="sidebarLabel">{item.label}</span>
+                </span>
+              </NavLink>
+            ))}
+          </div>
+        ) : null}
       </aside>
+
+      <button
+        className="mobileSidebarBackdrop"
+        type="button"
+        aria-label="Close navigation"
+        onClick={() => setMobileSidebarOpen(false)}
+      />
 
       <div className="workspace">
         <header className="topHeader">
@@ -1992,8 +2423,30 @@ function AppShell() {
           </form>
 
           <div className="headerActions">
+            <button
+              className="headerIconButton mobileSidebarToggle"
+              type="button"
+              aria-label={mobileSidebarOpen ? "Close navigation" : "Open navigation"}
+              aria-expanded={mobileSidebarOpen}
+              aria-controls="app-sidebar"
+              onClick={() => setMobileSidebarOpen((open) => !open)}
+            >
+              <Icon icon={mobileSidebarOpen ? "x" : "menu"} />
+            </button>
+            <button
+              className="mobileHeaderBrand"
+              type="button"
+              aria-label="Go to homepage"
+              onClick={() => navigate("/")}
+            >
+              <OpenSeaBadge className="logoBadge mobileHeaderBrandBadge" />
+              <span>OpenSea</span>
+            </button>
             {account ? (
               <div className="headerActionRail" aria-label="Account actions">
+                <button className="headerIconButton mobileSearchButton" type="button" aria-label="Search" onClick={() => navigate("/collections")}>
+                  <Icon icon="search" />
+                </button>
                 <button className="headerChestButton" type="button" onClick={() => navigate("/rewards")}>
                   <span className="headerChestGlyph" aria-hidden="true">🎁</span>
                   <span>Open Chest</span>
@@ -2016,23 +2469,79 @@ function AppShell() {
                   <Icon icon="wallet" className="headerBalanceIcon" />
                   <span>$0.00</span>
                 </button>
-                <button
-                  className="headerProfileTrigger"
-                  type="button"
-                  aria-label="Open profile"
-                  onClick={() => navigate(profileHref)}
-                >
-                  <UserAvatar
-                    address={account}
-                    displayName={currentUser?.displayName}
-                    src={currentUser?.avatarUri}
-                    className="userAvatar headerUserAvatar"
-                  />
-                  <Icon icon="chevron-down" className="headerProfileChevron" />
-                </button>
+                <div className="headerProfileMenuWrap" ref={profileMenuRef}>
+                  <button
+                    className={profileMenuOpen ? "headerProfileTrigger isOpen" : "headerProfileTrigger"}
+                    type="button"
+                    aria-label="Open account menu"
+                    aria-haspopup="menu"
+                    aria-expanded={profileMenuOpen}
+                    aria-controls="header-account-menu"
+                    onClick={() => setProfileMenuOpen((open) => !open)}
+                  >
+                    <UserAvatar
+                      address={account}
+                      displayName={currentUser?.displayName}
+                      src={currentUser?.avatarUri}
+                      className="userAvatar headerUserAvatar"
+                    />
+                    <Icon icon="chevron-down" className="headerProfileChevron" />
+                  </button>
+
+                  {profileMenuOpen ? (
+                    <div className="headerProfileMenu" id="header-account-menu" role="menu" aria-label="Account menu">
+                      <div className="headerProfileMenuHeader">
+                        <UserAvatar
+                          address={account}
+                          displayName={currentUser?.displayName}
+                          src={currentUser?.avatarUri}
+                          className="userAvatar headerProfileMenuAvatar"
+                        />
+                        <div className="headerProfileMenuCopy">
+                          <strong>{profileMenuLabel}</strong>
+                          <span>{account ? shortenAddress(account) : "Wallet session"}</span>
+                        </div>
+                      </div>
+                      <button
+                        className="headerProfileMenuItem"
+                        type="button"
+                        role="menuitem"
+                        onClick={() => {
+                          setProfileMenuOpen(false);
+                          navigate(profileHref);
+                        }}
+                      >
+                        <span className="headerProfileMenuItemCopy">
+                          <strong>View profile</strong>
+                          <small>Open your account page</small>
+                        </span>
+                        <Icon icon="chevron-right" className="microIcon" />
+                      </button>
+                      <button
+                        className="headerProfileMenuItem danger"
+                        type="button"
+                        role="menuitem"
+                        onClick={() => {
+                          setProfileMenuOpen(false);
+                          logout();
+                          navigate("/");
+                        }}
+                      >
+                        <span className="headerProfileMenuItemCopy">
+                          <strong>Log out</strong>
+                          <small>Disconnect this selected account</small>
+                        </span>
+                        <Icon icon="x" className="microIcon" />
+                      </button>
+                    </div>
+                  ) : null}
+                </div>
               </div>
             ) : (
               <>
+                <button className="headerIconButton mobileSearchButton" type="button" aria-label="Search" onClick={() => navigate("/collections")}>
+                  <Icon icon="search" />
+                </button>
                 <button
                   className="walletLink"
                   onClick={() => {
@@ -2613,22 +3122,20 @@ function CollectionsPage() {
                       <Icon icon="chevron-down" className="profileFilterChevron" />
                     </div>
                     <div className="collectionsFilterChipGrid">
-                      <button
-                        className={category === "all" ? "profileFilterChip active" : "profileFilterChip"}
-                        type="button"
+                      <FilterChipButton
+                        active={category === "all"}
                         onClick={() => updateParams(params, setParams, { category: "all" })}
                       >
                         All
-                      </button>
+                      </FilterChipButton>
                       {categoryOptions.map((option) => (
-                        <button
+                        <FilterChipButton
                           key={option}
-                          className={category === option ? "profileFilterChip active" : "profileFilterChip"}
-                          type="button"
+                          active={category === option}
                           onClick={() => updateParams(params, setParams, { category: option })}
                         >
                           {formatFilterLabel(option)}
-                        </button>
+                        </FilterChipButton>
                       ))}
                     </div>
                   </div>
@@ -2645,14 +3152,13 @@ function CollectionsPage() {
                         ["listed", "Listed"],
                         ["no-listings", "No listings"]
                       ].map(([value, label]) => (
-                        <button
+                        <FilterChipButton
                           key={value}
-                          className={status === value ? "profileFilterChip active" : "profileFilterChip"}
-                          type="button"
+                          active={status === value}
                           onClick={() => updateParams(params, setParams, { status: value })}
                         >
                           {label}
-                        </button>
+                        </FilterChipButton>
                       ))}
                     </div>
                   </div>
@@ -2672,24 +3178,22 @@ function CollectionsPage() {
                       />
                     </label>
                     <div className="collectionsFilterChipGrid">
-                      <button
-                        className={chain === "all" ? "profileFilterChip active" : "profileFilterChip"}
-                        type="button"
+                      <FilterChipButton
+                        active={chain === "all"}
                         onClick={() => updateParams(params, setParams, { chain: "all" })}
                       >
                         All
-                      </button>
+                      </FilterChipButton>
                       {visibleChainOptions.map((option) => {
                         const value = normalizeFilterValue(option);
                         return (
-                          <button
+                          <FilterChipButton
                             key={option}
-                            className={chain === value ? "profileFilterChip active" : "profileFilterChip"}
-                            type="button"
+                            active={chain === value}
                             onClick={() => updateParams(params, setParams, { chain: value })}
                           >
                             {option}
-                          </button>
+                          </FilterChipButton>
                         );
                       })}
                     </div>
@@ -2732,15 +3236,14 @@ function CollectionsPage() {
 
               <section className="pagePanel collectionsMarketSurface">
                 <div className="collectionsMarketTopbar">
-                  <div className="chipRow">
-                    <button
-                      className="iconChip"
-                      type="button"
-                      aria-label={railCollapsed ? "Open filters" : "Collapse filters"}
-                      onClick={() => updateParams(params, setParams, { rail: railCollapsed ? "open" : "collapsed" })}
-                    >
-                      <Icon icon={railCollapsed ? "chevron-right" : "collapse-left"} />
-                    </button>
+                    <div className="chipRow">
+                      <IconChipButton
+                        type="button"
+                        aria-label={railCollapsed ? "Open filters" : "Collapse filters"}
+                        onClick={() => updateParams(params, setParams, { rail: railCollapsed ? "open" : "collapsed" })}
+                      >
+                        <Icon icon={railCollapsed ? "chevron-right" : "collapse-left"} />
+                      </IconChipButton>
                     {["top", "trending", "watchlist"].map((item) => (
                       <button
                         key={item}
@@ -2773,22 +3276,22 @@ function CollectionsPage() {
                       ))}
                     </div>
                     <div className="chipRow">
-                      <button
-                        className={density === "dense" ? "iconChip active" : "iconChip"}
+                      <IconChipButton
+                        active={density === "dense"}
                         type="button"
                         aria-label="Dense table"
                         onClick={() => updateParams(params, setParams, { density: "dense" })}
                       >
                         <Icon icon="table" />
-                      </button>
-                      <button
-                        className={density === "comfortable" ? "iconChip active" : "iconChip"}
+                      </IconChipButton>
+                      <IconChipButton
+                        active={density === "comfortable"}
                         type="button"
                         aria-label="Comfortable table"
                         onClick={() => updateParams(params, setParams, { density: "comfortable" })}
                       >
                         <Icon icon="list" />
-                      </button>
+                      </IconChipButton>
                     </div>
                   </div>
                 </div>
@@ -2844,12 +3347,12 @@ function CollectionsPage() {
                             </p>
                           </div>
                         </div>
-                        <span className="collectionsMetricValue">{collection.tableMetrics.floor}</span>
-                        <span className={`collectionsMetricValue ${changeClass}`}>{collection.tableMetrics.change}</span>
-                        <span className="collectionsMetricValue">{collection.tableMetrics.topOffer}</span>
-                        <span className="collectionsMetricValue">{collection.tableMetrics.volume}</span>
-                        <span className="collectionsMetricValue">{collection.tableMetrics.sales}</span>
-                        <span className="collectionsMetricValue">{collection.tableMetrics.owners}</span>
+                        <span className="collectionsMetricValue" data-label="Floor price">{collection.tableMetrics.floor}</span>
+                        <span className={`collectionsMetricValue ${changeClass}`} data-label="1D change">{collection.tableMetrics.change}</span>
+                        <span className="collectionsMetricValue" data-label="Top offer">{collection.tableMetrics.topOffer}</span>
+                        <span className="collectionsMetricValue" data-label="1D vol">{collection.tableMetrics.volume}</span>
+                        <span className="collectionsMetricValue" data-label="1D sales">{collection.tableMetrics.sales}</span>
+                        <span className="collectionsMetricValue" data-label="Owners">{collection.tableMetrics.owners}</span>
                       </NavLink>
                     );
                   })}
@@ -2997,15 +3500,6 @@ function SwapPage() {
     };
   }, [account, bootstrap.config.network.nativeCurrency.symbol]);
 
-  async function handleCopy(value: string, label: string) {
-    try {
-      await copyText(value);
-      setStatus(`${label} copied.`);
-    } catch (error) {
-      setStatus(error instanceof Error ? error.message : `Failed to copy ${label.toLowerCase()}.`);
-    }
-  }
-
   return (
     <div className="darkPage">
       <div className="sectionGrid">
@@ -3054,12 +3548,22 @@ function SwapPage() {
             <strong>{bootstrap.config.network.nativeCurrency.symbol}</strong>
           </label>
           <div className="chipRow">
-            <button className="chip" type="button" onClick={() => void handleCopy(bootstrap.config.network.rpcUrl, "RPC URL")}>
+            <CopyFeedbackButton
+              className="chip"
+              value={bootstrap.config.network.rpcUrl}
+              label="RPC URL"
+              copiedChildren="RPC Copied"
+            >
               Copy RPC
-            </button>
-            <button className="chip" type="button" onClick={() => void handleCopy(String(bootstrap.config.network.chainId), "Chain ID")}>
+            </CopyFeedbackButton>
+            <CopyFeedbackButton
+              className="chip"
+              value={String(bootstrap.config.network.chainId)}
+              label="Chain ID"
+              copiedChildren="Chain ID Copied"
+            >
               Copy Chain ID
-            </button>
+            </CopyFeedbackButton>
             <button className="chip" type="button" onClick={() => navigate("/tokens")}>
               View tokens
             </button>
@@ -3563,8 +4067,8 @@ function ActivityPage() {
   return (
     <DataState state={state}>
       {(data) => (
-        <div className="darkPage">
-          <section className="pagePanel">
+        <div className="darkPage activityPage">
+          <section className="pagePanel activityPageSurface">
             <SectionHeader title="Activity" subtitle="Track listings, sales, and transfers" />
             <div className="collectionsToolbar">
               <div className="chipRow">
@@ -3580,7 +4084,7 @@ function ActivityPage() {
                 ))}
               </div>
             </div>
-            <div className="activityFeedList">
+            <div className="activityFeedList activityPageFeed">
               {data.activities.length === 0 ? (
                 <AmbientEmptyState
                   variant="rows"
@@ -4292,6 +4796,7 @@ function CreatePage() {
   const [params] = useSearchParams();
   const queueInputRef = useRef<HTMLInputElement | null>(null);
   const nftImageInputRef = useRef<HTMLInputElement | null>(null);
+  const collectionPickerRef = useRef<HTMLDivElement | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [nftDragActive, setNftDragActive] = useState(false);
   const [previewImageFailed, setPreviewImageFailed] = useState(false);
@@ -4309,6 +4814,7 @@ function CreatePage() {
     collections: []
   });
   const [selectedCollectionSlug, setSelectedCollectionSlug] = useState("");
+  const [collectionPickerOpen, setCollectionPickerOpen] = useState(false);
   const [form, setForm] = useState({
     name: "",
     subtitle: "",
@@ -4484,6 +4990,35 @@ function CreatePage() {
   }, []);
 
   useEffect(() => {
+    if (!collectionPickerOpen) {
+      return;
+    }
+
+    function handlePointerDown(event: MouseEvent) {
+      const target = event.target;
+      if (!(target instanceof Node)) {
+        return;
+      }
+      if (!collectionPickerRef.current?.contains(target)) {
+        setCollectionPickerOpen(false);
+      }
+    }
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setCollectionPickerOpen(false);
+      }
+    }
+
+    document.addEventListener("mousedown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [collectionPickerOpen]);
+
+  useEffect(() => {
     if (account && !form.recipient) {
       setForm((current) => ({
         ...current,
@@ -4617,6 +5152,9 @@ function CreatePage() {
 
   const selectedCollection =
     creatorCollectionsState.collections.find((collection) => collection.slug === selectedCollectionSlug) ?? null;
+  const selectedCollectionStatus = selectedCollection
+    ? `${formatCollectionStatus(selectedCollection.status)} • ${selectedCollection.standard}`
+    : "Choose a collection to mint into";
   const starterArtworks = buildStarterArtworkSet(
     form.name || "Reef NFT",
     form.subtitle || "Collector Edition"
@@ -5220,21 +5758,88 @@ function CreatePage() {
                   ) : creatorCollectionsState.collections.length > 0 ? (
                     <>
                       <div className="creatorCollectionToolbar">
-                        <label className="creatorCollectionSelectWrap">
-                          <span>Select collection</span>
-                          <select
-                            className="textInput creatorCollectionSelect"
-                            value={selectedCollectionSlug}
-                            onChange={(event) => setSelectedCollectionSlug(event.target.value)}
+                        <div className="creatorCollectionPickerSurface" ref={collectionPickerRef}>
+                          <span className="creatorCollectionPickerLabel">Select collection</span>
+                          <button
+                            className={collectionPickerOpen ? "creatorCollectionTrigger open" : "creatorCollectionTrigger"}
+                            type="button"
+                            onClick={() => setCollectionPickerOpen((current) => !current)}
+                            aria-haspopup="listbox"
+                            aria-expanded={collectionPickerOpen}
                           >
-                            {creatorCollectionsState.collections.map((collection) => (
-                              <option key={collection.slug} value={collection.slug}>
-                                {collection.name} · {formatCollectionStatus(collection.status)}
-                                {collection.contractReady === false ? " · Redeploy required" : ""}
-                              </option>
-                            ))}
-                          </select>
-                        </label>
+                            {selectedCollection ? (
+                              <>
+                                <img
+                                  className="creatorCollectionTriggerAvatar"
+                                  src={creatorCollectionArtworkPreview(selectedCollection)}
+                                  alt={selectedCollection.name}
+                                  onError={(event) =>
+                                    applyImageFallback(
+                                      event.currentTarget,
+                                      selectedCollection.symbol || selectedCollection.name
+                                    )
+                                  }
+                                />
+                                <span className="creatorCollectionTriggerBody">
+                                  <strong>{selectedCollection.name}</strong>
+                                  <small>
+                                    {selectedCollectionStatus}
+                                    {selectedCollection.contractReady === false ? " • Redeploy required" : ""}
+                                  </small>
+                                </span>
+                              </>
+                            ) : (
+                              <span className="creatorCollectionTriggerPlaceholder">
+                                Choose a collection to mint into
+                              </span>
+                            )}
+                            <Icon
+                              icon="chevron-down"
+                              className={collectionPickerOpen ? "microIcon creatorCollectionTriggerChevron open" : "microIcon creatorCollectionTriggerChevron"}
+                            />
+                          </button>
+                          {collectionPickerOpen ? (
+                            <div className="creatorCollectionMenu" role="listbox" aria-label="Creator collections">
+                              {creatorCollectionsState.collections.map((collection) => {
+                                const active = collection.slug === selectedCollectionSlug;
+                                return (
+                                  <button
+                                    key={collection.slug}
+                                    className={active ? "creatorCollectionMenuOption active" : "creatorCollectionMenuOption"}
+                                    type="button"
+                                    role="option"
+                                    aria-selected={active}
+                                    onClick={() => {
+                                      setSelectedCollectionSlug(collection.slug);
+                                      setCollectionPickerOpen(false);
+                                    }}
+                                  >
+                                    <img
+                                      className="creatorCollectionMenuAvatar"
+                                      src={creatorCollectionArtworkPreview(collection)}
+                                      alt={collection.name}
+                                      onError={(event) =>
+                                        applyImageFallback(
+                                          event.currentTarget,
+                                          collection.symbol || collection.name
+                                        )
+                                      }
+                                    />
+                                    <span className="creatorCollectionMenuBody">
+                                      <strong>{collection.name}</strong>
+                                      <small>
+                                        {formatCollectionStatus(collection.status)} • {collection.standard} • {collection.chainName}
+                                      </small>
+                                    </span>
+                                    <span className={collection.contractReady === false ? "creatorCollectionMenuState warning" : "creatorCollectionMenuState"}>
+                                      {collection.contractReady === false ? "Redeploy" : "Live"}
+                                    </span>
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          ) : null}
+                        </div>
                         <button className="chip" type="button" onClick={() => navigate("/create/collection")}>
                           Create new collection
                         </button>
@@ -5345,14 +5950,13 @@ function CreatePage() {
                   </div>
                 </div>
                 {mintQueue.length === 0 ? (
-                  <AmbientEmptyState
-                    compact
-                    className="batchQueueEmpty"
-                    variant="cards"
-                    eyebrow="Mint queue"
-                    title="No queued NFTs yet"
-                    copy="Upload multiple files or add the current draft to mint several NFTs into this collection in one pass."
-                  />
+                  <div className="batchQueueEmpty" role="status" aria-live="polite">
+                    <span className="batchQueueEmptyIcon">
+                      <Icon icon="view-grid" />
+                    </span>
+                    <strong>No queued NFTs yet</strong>
+                    <p>Upload files or add the current draft to mint several NFTs into this collection in one pass.</p>
+                  </div>
                 ) : (
                   <div className="batchQueueList">
                     {mintQueue.map((draft, index) => (
@@ -6926,8 +7530,51 @@ function CollectionPage({
   const [params, setParams] = useSearchParams();
   const query = params.get("q") ?? "";
   const sort = params.get("sort") ?? "price-low";
+  const rarityMinParam = params.get("rarityMin") ?? "";
+  const rarityMaxParam = params.get("rarityMax") ?? "";
+  const minPriceParam = params.get("minPrice") ?? "";
+  const maxPriceParam = params.get("maxPrice") ?? "";
+  const marketplaceParam = params.get("marketplace") ?? "";
   const { bootstrap, setStatus, account, connectWallet, refreshNonce } = useMarketplace();
   const state = useRemoteData<CollectionResponse>(slug ? `/dataset/collection/${slug}` : null, refreshNonce);
+  const [collectionChromeCompact, setCollectionChromeCompact] = useState(false);
+  const [collectionRarityOpen, setCollectionRarityOpen] = useState(true);
+  const [collectionPriceOpen, setCollectionPriceOpen] = useState(true);
+  const [collectionMarketplacesOpen, setCollectionMarketplacesOpen] = useState(true);
+  const [rarityMinDraft, setRarityMinDraft] = useState(rarityMinParam);
+  const [rarityMaxDraft, setRarityMaxDraft] = useState(rarityMaxParam);
+  const [minPriceDraft, setMinPriceDraft] = useState(minPriceParam);
+  const [maxPriceDraft, setMaxPriceDraft] = useState(maxPriceParam);
+
+  useEffect(() => {
+    if (!slug) {
+      return undefined;
+    }
+
+    const syncCollectionChrome = () => {
+      setCollectionChromeCompact(window.scrollY > 236);
+    };
+
+    syncCollectionChrome();
+    window.addEventListener("scroll", syncCollectionChrome, { passive: true });
+    return () => window.removeEventListener("scroll", syncCollectionChrome);
+  }, [slug]);
+
+  useEffect(() => {
+    setRarityMinDraft(rarityMinParam);
+  }, [rarityMinParam]);
+
+  useEffect(() => {
+    setRarityMaxDraft(rarityMaxParam);
+  }, [rarityMaxParam]);
+
+  useEffect(() => {
+    setMinPriceDraft(minPriceParam);
+  }, [minPriceParam]);
+
+  useEffect(() => {
+    setMaxPriceDraft(maxPriceParam);
+  }, [maxPriceParam]);
 
   if (!slug) {
     return <PageState message="Missing collection slug." />;
@@ -6936,11 +7583,156 @@ function CollectionPage({
   return (
     <DataState state={state}>
       {(data) => {
-        const visibleItems = data.items.filter((item) => {
-          if (!query) {
+        const collectionRailCollapsed = params.get("collectionRail") === "collapsed";
+        const statusFilter = params.get("status") ?? "all";
+        const normalizedQuery = query.trim().toLowerCase();
+        const accountLower = account.toLowerCase();
+        const rarityMin = parseOptionalNumber(rarityMinParam);
+        const rarityMax = parseOptionalNumber(rarityMaxParam);
+        const minPrice = parseOptionalNumber(minPriceParam);
+        const maxPrice = parseOptionalNumber(maxPriceParam);
+        const marketplaceEnabled = marketplaceParam === "reef";
+        const sortOptions = ["price-low", "price-high", "recent", "token-low"] as const;
+        const sortLabelMap: Record<(typeof sortOptions)[number], string> = {
+          "price-low": "Price low to high",
+          "price-high": "Price high to low",
+          recent: "Recently added",
+          "token-low": "Token low to high"
+        };
+        const currentSort =
+          sortOptions.find((option) => option === sort) ?? "price-low";
+        const cycleCollectionSort = () => {
+          const currentIndex = sortOptions.indexOf(currentSort);
+          const next = sortOptions[(currentIndex + 1) % sortOptions.length];
+          updateParams(params, setParams, { sort: next });
+        };
+        const traitTypeMap = new Map<string, Set<string>>();
+
+        for (const item of data.items) {
+          for (const trait of item.traits) {
+            const key = trait.type.trim();
+            const values = traitTypeMap.get(key) ?? new Set<string>();
+            values.add(trait.value.trim());
+            traitTypeMap.set(key, values);
+          }
+        }
+
+        const traitTypeSummaries = Array.from(traitTypeMap.entries())
+          .map(([type, values]) => ({
+            type,
+            valueCount: values.size
+          }))
+          .sort((left, right) => right.valueCount - left.valueCount || left.type.localeCompare(right.type));
+
+        const statusOptions = [
+          { key: "all", label: "All", count: data.items.length },
+          { key: "listed", label: "Listed", count: data.items.filter((item) => item.listed).length },
+          { key: "unlisted", label: "Not Listed", count: data.items.filter((item) => !item.listed).length },
+          { key: "owned", label: "Owned by you", count: account ? data.items.filter((item) => sameAddress(item.ownerAddress, account)).length : 0 }
+        ];
+        const applyRarityRange = () => {
+          updateParams(params, setParams, {
+            rarityMin: rarityMinDraft,
+            rarityMax: rarityMaxDraft
+          });
+        };
+        const applyPriceRange = () => {
+          updateParams(params, setParams, {
+            minPrice: minPriceDraft,
+            maxPrice: maxPriceDraft
+          });
+        };
+        const canApplyRarity =
+          rarityMinDraft.trim() !== rarityMinParam.trim() ||
+          rarityMaxDraft.trim() !== rarityMaxParam.trim();
+        const canApplyPrice =
+          minPriceDraft.trim() !== minPriceParam.trim() ||
+          maxPriceDraft.trim() !== maxPriceParam.trim();
+        const hasCollectionFiltersApplied =
+          normalizedQuery.length > 0 ||
+          statusFilter !== "all" ||
+          rarityMin !== null ||
+          rarityMax !== null ||
+          minPrice !== null ||
+          maxPrice !== null ||
+          marketplaceEnabled;
+        const matchesQuery = (item: ItemRecord) => {
+          if (!normalizedQuery) {
             return true;
           }
-          return [item.name, item.description].some((value) => value.toLowerCase().includes(query.toLowerCase()));
+          return [
+            item.name,
+            item.description,
+            ...item.traits.flatMap((trait) => [trait.type, trait.value])
+          ].some((value) => value.toLowerCase().includes(normalizedQuery));
+        };
+        const matchesStatus = (item: ItemRecord) => {
+          switch (statusFilter) {
+            case "listed":
+              return item.listed;
+            case "unlisted":
+              return !item.listed;
+            case "owned":
+              return Boolean(account) && item.ownerAddress.toLowerCase() === accountLower;
+            default:
+              return true;
+          }
+        };
+        const matchesRarity = (item: ItemRecord) => {
+          if (rarityMin === null && rarityMax === null) {
+            return true;
+          }
+          const rank = parseRankDisplay(item.rankDisplay);
+          if (rank === null) {
+            return false;
+          }
+          if (rarityMin !== null && rank < rarityMin) {
+            return false;
+          }
+          if (rarityMax !== null && rank > rarityMax) {
+            return false;
+          }
+          return true;
+        };
+        const matchesPrice = (item: ItemRecord) => {
+          if (minPrice === null && maxPrice === null) {
+            return true;
+          }
+          if (!item.listed || !item.currentPriceRaw) {
+            return false;
+          }
+          const priceValue = Number(formatEther(item.currentPriceRaw));
+          if (!Number.isFinite(priceValue)) {
+            return false;
+          }
+          if (minPrice !== null && priceValue < minPrice) {
+            return false;
+          }
+          if (maxPrice !== null && priceValue > maxPrice) {
+            return false;
+          }
+          return true;
+        };
+        const matchesMarketplace = (item: ItemRecord) => {
+          if (!marketplaceEnabled) {
+            return true;
+          }
+          return item.listed;
+        };
+        const visibleItems = [...data.items.filter((item) =>
+          matchesQuery(item) && matchesStatus(item) && matchesRarity(item) && matchesPrice(item) && matchesMarketplace(item)
+        )].sort((left, right) => {
+          switch (currentSort) {
+            case "price-high":
+              return compareBigIntStrings(right.currentPriceRaw || "0", left.currentPriceRaw || "0");
+            case "recent":
+              return Number(right.tokenId) - Number(left.tokenId);
+            case "token-low":
+              return Number(left.tokenId) - Number(right.tokenId);
+            case "price-low":
+            default:
+              return compareBigIntStrings(left.currentPriceRaw || "0", right.currentPriceRaw || "0");
+          }
         });
         const normalizedPrimaryAction = data.collection.actionBar.primary.trim().toLowerCase();
         const normalizedTertiaryAction = data.collection.actionBar.tertiary.trim().toLowerCase();
@@ -6958,8 +7750,23 @@ function CollectionPage({
         const collectionHeroStyle = {
           "--collection-hero-image": `url("${assetUrl(data.collection.avatarUrl || data.collection.hero.backgroundUrl)}")`
         } as CSSProperties;
+        const collectionPageStyle = {
+          ...themeStyle(data.collection.theme),
+          ...collectionHeroStyle
+        } as CSSProperties;
         const openCreateNft = () => {
           navigate(`/create${buildQuery({ collection: data.collection.slug })}`);
+        };
+        const clearCollectionFilters = () => {
+          updateParams(params, setParams, {
+            q: "",
+            status: "all",
+            rarityMin: "",
+            rarityMax: "",
+            minPrice: "",
+            maxPrice: "",
+            marketplace: ""
+          });
         };
         const handleStickyTertiaryAction = () => {
           if (normalizedTertiaryAction === "activity") {
@@ -7007,10 +7814,71 @@ function CollectionPage({
           }
           setStatus(`${data.collection.actionBar.primary} is not wired for this collection yet.`);
         };
+        const collectionTabs = bootstrap.config.site.collectionTabs.map((tab) => {
+          const active =
+            (mode === "items" && tab.label === "Items") ||
+            (mode === "explore" && tab.label === "Explore") ||
+            (mode === "offers" && tab.label === "Offers") ||
+            (mode === "holders" && tab.label === "Holders") ||
+            (mode === "traits" && tab.label === "Traits") ||
+            (mode === "activity" && tab.label === "Activity") ||
+            (mode === "analytics" && tab.label === "Analytics") ||
+            (mode === "about" && tab.label === "About");
+          return (
+            <SurfaceTabLink
+              key={tab.label}
+              to={tab.hrefPattern.replace(":slug", slug)}
+              active={active}
+            >
+              {tab.label}
+            </SurfaceTabLink>
+          );
+        });
+        const collectionToolbar = (
+          <div className={collectionRailCollapsed ? "collectionToolbarShell railCollapsed" : "collectionToolbarShell"}>
+            {!collectionRailCollapsed ? <div className="collectionToolbarRailSpacer" aria-hidden="true" /> : null}
+            <div className="collectionWorkspaceToolbar">
+              <div className="collectionWorkspaceToolbarLead">
+                <IconChipButton
+                  className="collectionRailToggle"
+                  type="button"
+                  aria-label={collectionRailCollapsed ? "Open filters" : "Collapse filters"}
+                  onClick={() => updateParams(params, setParams, { collectionRail: collectionRailCollapsed ? "open" : "collapsed" })}
+                >
+                  <Icon icon={collectionRailCollapsed ? "chevron-right" : "collapse-left"} />
+                </IconChipButton>
+                <label className="inlineSearch collectionInlineSearch">
+                  <Icon icon="search" />
+                  <input
+                    value={query}
+                    onChange={(event) => updateParams(params, setParams, { q: event.target.value })}
+                    placeholder="Search by item or trait"
+                  />
+                </label>
+                <span className="collectionToolbarCount">{visibleItems.length.toLocaleString()} ITEMS</span>
+              </div>
+
+              <div className="collectionWorkspaceTools">
+                <IconChipButton onClick={cycleCollectionSort}>
+                  {sortLabelMap[currentSort]}
+                  <Icon icon="chevron-right" className="microIcon" />
+                </IconChipButton>
+                <IconChipButton active><Icon icon="view-grid" /></IconChipButton>
+                <IconChipButton><Icon icon="view-columns" /></IconChipButton>
+                <IconChipButton><Icon icon="list" /></IconChipButton>
+                <IconChipButton><Icon icon="settings" /></IconChipButton>
+                <IconChipButton><Icon icon="chart" /> Insights</IconChipButton>
+              </div>
+            </div>
+          </div>
+        );
 
         return (
-          <div className="darkPage collectionPage" style={themeStyle(data.collection.theme)}>
-            <section className="collectionHeroSurface" style={collectionHeroStyle}>
+          <div
+            className={collectionChromeCompact ? "darkPage collectionPage collectionPageScrolled" : "darkPage collectionPage"}
+            style={collectionPageStyle}
+          >
+            <section className="collectionHeroSurface">
               <div className="collectionHeroBackdrop" aria-hidden="true" />
               <div className="collectionHeroOverlay">
                 <div className="collectionIdentityBlock">
@@ -7019,16 +7887,16 @@ function CollectionPage({
                     <div className="collectionTitleRow">
                       <h1>{data.collection.name}</h1>
                       {data.collection.verified ? <OpenSeaBadge className="verifiedBadge" /> : null}
-                      <button className="ghostIcon" type="button"><Icon icon="star" /></button>
-                      <button className="ghostIcon" type="button"><Icon icon="globe" /></button>
-                      <button className="ghostIcon" type="button"><Icon icon="x" /></button>
-                      <button className="ghostIcon" type="button"><Icon icon="share" /></button>
-                      <button className="ghostIcon" type="button"><Icon icon="more" /></button>
+                      <GhostIconButton><Icon icon="star" /></GhostIconButton>
+                      <GhostIconButton><Icon icon="globe" /></GhostIconButton>
+                      <GhostIconButton><Icon icon="x" /></GhostIconButton>
+                      <GhostIconButton><Icon icon="share" /></GhostIconButton>
+                      <GhostIconButton><Icon icon="more" /></GhostIconButton>
                     </div>
                     <div className="badgeRow">
-                      <span className="heroBadge">BY {data.collection.hero.subtitle.replace(/^By\s+/i, "").toUpperCase()}</span>
+                      <HeroBadgePill>BY {data.collection.hero.subtitle.replace(/^By\s+/i, "").toUpperCase()}</HeroBadgePill>
                       {data.collection.hero.badges.map((badge) => (
-                        <span className="heroBadge" key={badge}>{badge}</span>
+                        <HeroBadgePill key={badge}>{badge}</HeroBadgePill>
                       ))}
                     </div>
                   </div>
@@ -7041,216 +7909,420 @@ function CollectionPage({
                       <strong>{metric.value}</strong>
                     </article>
                   ))}
-                  <button className="ghostIcon enlarge" type="button"><Icon icon="view-columns" /></button>
+                  <GhostIconButton className="enlarge"><Icon icon="view-columns" /></GhostIconButton>
                 </div>
               </div>
             </section>
 
-            <div className="tabBar">
-              {bootstrap.config.site.collectionTabs.map((tab) => {
-                const active =
-                  (mode === "items" && tab.label === "Items") ||
-                  (mode === "explore" && tab.label === "Explore") ||
-                  (mode === "holders" && tab.label === "Holders") ||
-                  (mode === "traits" && tab.label === "Traits") ||
-                  (mode === "activity" && tab.label === "Activity") ||
-                  (mode === "analytics" && tab.label === "Analytics") ||
-                  (mode === "about" && tab.label === "About");
-                return (
-                  <NavLink
-                    key={tab.label}
-                    to={tab.hrefPattern.replace(":slug", slug)}
-                    className={active ? "tabLink active" : "tabLink"}
-                  >
-                    {tab.label}
-                  </NavLink>
-                );
-              })}
-            </div>
-
-            <div className="collectionToolbar">
-              <div className="chipRow">
-                <button className="iconChip" type="button"><Icon icon="filter" /></button>
-                <label className="inlineSearch">
-                  <Icon icon="search" />
-                  <input
-                    value={query}
-                    onChange={(event) => updateParams(params, setParams, { q: event.target.value })}
-                    placeholder="Search by item or trait"
-                  />
-                </label>
-              </div>
-
-              <div className="chipRow">
-                <button className="iconChip" type="button">{sort.replace("-", " ")} <Icon icon="chevron-right" className="microIcon" /></button>
-                <button className="iconChip" type="button"><Icon icon="view-grid" /></button>
-                <button className="iconChip" type="button"><Icon icon="view-columns" /></button>
-                <button className="iconChip" type="button"><Icon icon="grid" /></button>
-                <button className="iconChip" type="button"><Icon icon="list" /></button>
-                <button className="iconChip" type="button"><Icon icon="settings" /></button>
-                <button className="iconChip" type="button"><Icon icon="chart" /></button>
-              </div>
-            </div>
-
-            <p className="itemCountLabel">{data.collection.items.toLocaleString()} ITEMS</p>
-
-            {(mode === "items" || mode === "explore") ? (
-              visibleItems.length === 0 ? (
-                <section className="pagePanel">
-                  <AmbientEmptyState
-                    variant="cards"
-                    eyebrow="Items"
-                    title="No items to display"
-                    copy="Mint into this collection and the NFTs will start appearing here."
-                  />
-                </section>
-              ) : (
-                <div className="itemGrid">
-                  {visibleItems.map((item) => (
-                    <ItemGridCard key={item.id} item={item} />
-                  ))}
-                </div>
-              )
-            ) : null}
-
-            {mode === "offers" ? (
-              <section className="pagePanel">
-                <SectionHeader title="Collection offers" subtitle="Offers across the collection" />
-                <div className="offerTable">
-                  {data.offers.length === 0 ? (
-                    <AmbientEmptyState
-                      compact
-                      variant="rows"
-                      eyebrow="Offers"
-                      title="No offers to display"
-                      copy="Collection offers will appear here once buyers start bidding."
+            <div className="collectionScrollChrome">
+              <div className="collectionScrollHeader">
+                <div className="collectionScrollHeaderInner">
+                  <div className="collectionStickyIdentity">
+                    <img
+                      className="collectionStickyAvatar"
+                      src={assetUrl(data.collection.avatarUrl || data.collection.hero.backgroundUrl)}
+                      alt={data.collection.name}
                     />
-                  ) : null}
-                  {data.offers.map((offer) => (
-                    <div className="offerRow" key={offer.itemId}>
-                      <strong>{offer.itemName}</strong>
-                      <span>{offer.priceDisplay}</span>
-                      <span>{offer.from}</span>
-                      <span>{offer.expiresIn}</span>
-                    </div>
-                  ))}
-                </div>
-              </section>
-            ) : null}
-
-            {mode === "holders" ? (
-              <section className="pagePanel">
-                <SectionHeader title="Holders" subtitle="Wallets that currently hold items from this collection" />
-                <div className="offerTable">
-                  {data.holders.length === 0 ? (
-                    <AmbientEmptyState
-                      compact
-                      variant="rows"
-                      eyebrow="Holders"
-                      title="No holders to display"
-                      copy="Holder addresses appear here once NFTs from this collection are minted or transferred."
-                    />
-                  ) : null}
-                  {data.holders.map((holder) => (
-                    <div className="offerRow" key={holder.slug}>
-                      <div className="collectionIdentity">
-                        <img src={assetUrl(holder.avatarUrl)} alt={holder.name} />
-                        <strong>{holder.name}</strong>
+                    <div className="collectionStickyIdentityCopy">
+                      <div className="collectionStickyTitleRow">
+                        <h2>{data.collection.name}</h2>
+                        {data.collection.verified ? <OpenSeaBadge className="verifiedBadge small" /> : null}
+                        <div className="collectionStickyActions">
+                          <GhostIconButton><Icon icon="star" /></GhostIconButton>
+                          <GhostIconButton><Icon icon="copy" /></GhostIconButton>
+                          <GhostIconButton><Icon icon="globe" /></GhostIconButton>
+                          <GhostIconButton><Icon icon="x" /></GhostIconButton>
+                          <GhostIconButton><Icon icon="share" /></GhostIconButton>
+                          <GhostIconButton><Icon icon="more" /></GhostIconButton>
+                        </div>
                       </div>
-                      <span>{holder.quantity} items</span>
-                      <span>{holder.share}</span>
+                      <div className="badgeRow collectionStickyBadgeRow">
+                        <HeroBadgePill>BY {data.collection.hero.subtitle.replace(/^By\s+/i, "").toUpperCase()}</HeroBadgePill>
+                        {data.collection.hero.badges.map((badge) => (
+                          <HeroBadgePill key={badge}>{badge}</HeroBadgePill>
+                        ))}
+                      </div>
                     </div>
-                  ))}
-                </div>
-              </section>
-            ) : null}
+                  </div>
 
-            {mode === "traits" ? (
-              <section className="pagePanel">
-                <SectionHeader title="Traits" subtitle="Browse traits across the collection" />
-                <div className="traitSummaryGrid">
-                  {data.traitHighlights.length === 0 ? (
-                    <AmbientEmptyState
-                      compact
-                      variant="rows"
-                      eyebrow="Traits"
-                      title="No traits to display"
-                      copy="Trait highlights will appear here once NFTs in this collection include metadata attributes."
-                    />
-                  ) : null}
-                  {data.traitHighlights.map((trait) => (
-                    <article className="traitSummaryCard" key={trait.type}>
-                      <span className="metaLabel">{trait.type}</span>
-                      {trait.topValues.map((value) => (
-                        <strong key={value}>{value}</strong>
+                  <div className="heroMetricRail collectionStickyMetrics">
+                    {data.collection.hero.metrics.map((metric) => (
+                      <article key={metric.label}>
+                        <span>{metric.label}</span>
+                        <strong>{metric.value}</strong>
+                      </article>
+                    ))}
+                    <GhostIconButton className="enlarge"><Icon icon="view-columns" /></GhostIconButton>
+                  </div>
+                </div>
+              </div>
+
+              <div className="tabBar collectionTabBar">
+                {collectionTabs}
+              </div>
+
+              {collectionToolbar}
+            </div>
+
+            <div className={collectionRailCollapsed ? "collectionWorkspaceLayout railCollapsed" : "collectionWorkspaceLayout"}>
+              {!collectionRailCollapsed ? (
+                <aside className="collectionFilterRail">
+                  <section className="profileFilterSection collectionFilterStatusSection">
+                    <div className="profileFilterHeadingRow">
+                      <strong>Status</strong>
+                      <Icon icon="chevron-down" className="profileFilterChevron open" />
+                    </div>
+                    <div className="profileFilterChipGrid">
+                      {statusOptions.map((option) => (
+                        <FilterChipButton
+                          key={option.key}
+                          active={statusFilter === option.key}
+                          onClick={() => updateParams(params, setParams, { status: option.key })}
+                        >
+                          {option.label}
+                        </FilterChipButton>
                       ))}
-                    </article>
-                  ))}
-                </div>
-              </section>
-            ) : null}
-
-            {mode === "activity" ? (
-              <section className="pagePanel">
-                <SectionHeader title="Activity" subtitle="Collection activity" />
-                <div className="activityTable">
-                  {data.activities.length === 0 ? (
-                    <AmbientEmptyState
-                      compact
-                      variant="rows"
-                      eyebrow="Activity"
-                      title="No activity yet"
-                      copy="Mint, list, sale, and transfer events for this collection will show up here."
-                    />
-                  ) : null}
-                  {data.activities.map((entry) => (
-                    <div className="activityTableRow" key={entry.id}>
-                      <div>
-                        <strong>{entry.itemName}</strong>
-                        <p>{entry.type}</p>
-                      </div>
-                      <span>{entry.from}</span>
-                      <span>{entry.to}</span>
-                      <span>{entry.priceDisplay}</span>
-                      <span>{entry.ageLabel}</span>
                     </div>
-                  ))}
-                </div>
-              </section>
-            ) : null}
+                  </section>
 
-            {mode === "analytics" ? (
-              data.analytics.length === 0 ? (
-                <section className="pagePanel">
-                  <AmbientEmptyState
-                    compact
-                    variant="rows"
-                    eyebrow="Analytics"
-                    title="No analytics to display"
-                    copy="As trading and ownership data builds up, this collection will unlock analytics here."
-                  />
-                </section>
-              ) : (
-                <div className="analyticsGrid">
-                  {data.analytics.map((metric) => (
-                    <AnalyticsSparklineCard key={metric.label} metric={metric} />
-                  ))}
-                </div>
-              )
-            ) : null}
+                  <section className="profileFilterSection collectionFilterCompactSection">
+                    <button
+                      className="profileFilterHeadingButton collectionFilterHeadingButton"
+                      type="button"
+                      onClick={() => setCollectionRarityOpen((current) => !current)}
+                    >
+                      <strong>Rarity</strong>
+                      <Icon
+                        icon="chevron-down"
+                        className={collectionRarityOpen ? "microIcon profileFilterChevron open" : "microIcon profileFilterChevron"}
+                      />
+                    </button>
+                    {collectionRarityOpen ? (
+                      <div className="profileFilterSectionBody collectionFilterSectionBody">
+                        <div className="collectionFilterRangeInputs">
+                          <input
+                            className="collectionFilterInput"
+                            value={rarityMinDraft}
+                            onChange={(event) => setRarityMinDraft(event.target.value)}
+                            inputMode="numeric"
+                            placeholder="Min"
+                          />
+                          <span className="collectionFilterRangeDivider">to</span>
+                          <input
+                            className="collectionFilterInput"
+                            value={rarityMaxDraft}
+                            onChange={(event) => setRarityMaxDraft(event.target.value)}
+                            inputMode="numeric"
+                            placeholder="Max"
+                          />
+                        </div>
+                        <button
+                          className="collectionFilterApplyButton"
+                          type="button"
+                          onClick={applyRarityRange}
+                          disabled={!canApplyRarity}
+                        >
+                          Apply
+                        </button>
+                      </div>
+                    ) : null}
+                  </section>
 
-            {mode === "about" ? (
-              <section className="pagePanel">
-                <SectionHeader title="About" subtitle="Collection details" />
-                <div className="aboutStack">
-                  {data.about.map((paragraph) => (
-                    <p key={paragraph}>{paragraph}</p>
-                  ))}
-                </div>
-              </section>
-            ) : null}
+                  <section className="profileFilterSection collectionFilterCompactSection">
+                    <button
+                      className="profileFilterHeadingButton collectionFilterHeadingButton"
+                      type="button"
+                      onClick={() => setCollectionPriceOpen((current) => !current)}
+                    >
+                      <strong>Price</strong>
+                      <Icon
+                        icon="chevron-down"
+                        className={collectionPriceOpen ? "microIcon profileFilterChevron open" : "microIcon profileFilterChevron"}
+                      />
+                    </button>
+                    {collectionPriceOpen ? (
+                      <div className="profileFilterSectionBody collectionFilterSectionBody">
+                        <label className="collectionFilterSelectWrap">
+                          <select
+                            className="collectionFilterSelectButton"
+                            value={bootstrap.config.network.nativeCurrency.symbol}
+                            onChange={() => undefined}
+                            aria-label="Price currency"
+                          >
+                            <option value={bootstrap.config.network.nativeCurrency.symbol}>
+                              {bootstrap.config.network.nativeCurrency.symbol}
+                            </option>
+                          </select>
+                          <Icon icon="chevron-down" className="microIcon collectionFilterSelectIcon" />
+                        </label>
+                        <div className="collectionFilterRangeInputs">
+                          <input
+                            className="collectionFilterInput"
+                            value={minPriceDraft}
+                            onChange={(event) => setMinPriceDraft(event.target.value)}
+                            inputMode="decimal"
+                            placeholder="Min"
+                          />
+                          <span className="collectionFilterRangeDivider">to</span>
+                          <input
+                            className="collectionFilterInput"
+                            value={maxPriceDraft}
+                            onChange={(event) => setMaxPriceDraft(event.target.value)}
+                            inputMode="decimal"
+                            placeholder="Max"
+                          />
+                        </div>
+                        <button
+                          className="collectionFilterApplyButton"
+                          type="button"
+                          onClick={applyPriceRange}
+                          disabled={!canApplyPrice}
+                        >
+                          Apply
+                        </button>
+                      </div>
+                    ) : null}
+                  </section>
 
-            {bootstrap.runtime.liveTrading && data.collection.showStickyActionBar ? (
+                  <section className="profileFilterSection collectionFilterCompactSection">
+                    <button
+                      className="profileFilterHeadingButton collectionFilterHeadingButton"
+                      type="button"
+                      onClick={() => setCollectionMarketplacesOpen((current) => !current)}
+                    >
+                      <strong>Marketplaces</strong>
+                      <Icon
+                        icon="chevron-down"
+                        className={collectionMarketplacesOpen ? "microIcon profileFilterChevron open" : "microIcon profileFilterChevron"}
+                      />
+                    </button>
+                    {collectionMarketplacesOpen ? (
+                      <div className="profileFilterSectionBody collectionFilterSectionBody">
+                        <label className="collectionMarketplaceOption">
+                          <input
+                            type="checkbox"
+                            checked={marketplaceEnabled}
+                            onChange={(event) =>
+                              updateParams(params, setParams, {
+                                marketplace: event.target.checked ? "reef" : ""
+                              })
+                            }
+                          />
+                          <span className="collectionMarketplaceOptionBar" />
+                        </label>
+                        <div className="collectionMarketplaceHint">Active Reef marketplace listings</div>
+                      </div>
+                    ) : null}
+                  </section>
+
+                  <section className="profileFilterSection collectionTraitsSection">
+                    <div className="profileFilterHeadingRow collectionTraitsHeading">
+                      <strong>Traits</strong>
+                    </div>
+                    <div className="collectionTraitTypeList">
+                      {traitTypeSummaries.slice(0, 10).map((trait) => {
+                        const active = normalizedQuery === trait.type.toLowerCase();
+                        return (
+                          <button
+                            key={trait.type}
+                            className={active ? "collectionTraitTypeButton active" : "collectionTraitTypeButton"}
+                            type="button"
+                            onClick={() =>
+                              updateParams(params, setParams, {
+                                q: active ? "" : trait.type
+                              })
+                            }
+                          >
+                            <span>{trait.type}</span>
+                            <small>{trait.valueCount}</small>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </section>
+                </aside>
+              ) : null}
+
+              <div className="collectionWorkspaceMain">
+                {(mode === "items" || mode === "explore") ? (
+                  visibleItems.length === 0 ? (
+                    <section className="pagePanel">
+                      <div className="collectionItemsEmptyState">
+                        <span className="collectionItemsEmptyEyebrow">
+                          <Icon icon="grid" />
+                          Items
+                        </span>
+                        <h3>{data.items.length === 0 ? "No items minted yet" : "No items match these filters"}</h3>
+                        <p>
+                          {data.items.length === 0
+                            ? "Mint into this collection and the NFTs will start appearing here."
+                            : "Try clearing the current filters or search terms to bring items back into view."}
+                        </p>
+                        <div className="collectionItemsEmptyActions">
+                          {data.items.length === 0 ? (
+                            <button className="actionButton primary" type="button" onClick={handleStickyPrimaryAction}>
+                              {data.collection.actionBar.primary}
+                            </button>
+                          ) : null}
+                          {hasCollectionFiltersApplied ? (
+                            <button className="actionButton secondary" type="button" onClick={clearCollectionFilters}>
+                              Clear filters
+                            </button>
+                          ) : null}
+                        </div>
+                      </div>
+                    </section>
+                  ) : (
+                    <div className="itemGrid">
+                      {visibleItems.map((item) => (
+                        <ItemGridCard key={item.id} item={item} />
+                      ))}
+                    </div>
+                  )
+                ) : null}
+
+                {mode === "offers" ? (
+                  <section className="pagePanel">
+                    <SectionHeader title="Collection offers" subtitle="Offers across the collection" />
+                    <div className="offerTable">
+                      {data.offers.length === 0 ? (
+                        <AmbientEmptyState
+                          compact
+                          variant="rows"
+                          eyebrow="Offers"
+                          title="No offers to display"
+                          copy="Collection offers will appear here once buyers start bidding."
+                        />
+                      ) : null}
+                      {data.offers.map((offer) => (
+                        <div className="offerRow" key={offer.itemId}>
+                          <strong>{offer.itemName}</strong>
+                          <span>{offer.priceDisplay}</span>
+                          <span>{offer.from}</span>
+                          <span>{offer.expiresIn}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </section>
+                ) : null}
+
+                {mode === "holders" ? (
+                  <section className="pagePanel">
+                    <SectionHeader title="Holders" subtitle="Wallets that currently hold items from this collection" />
+                    <div className="offerTable">
+                      {data.holders.length === 0 ? (
+                        <AmbientEmptyState
+                          compact
+                          variant="rows"
+                          eyebrow="Holders"
+                          title="No holders to display"
+                          copy="Holder addresses appear here once NFTs from this collection are minted or transferred."
+                        />
+                      ) : null}
+                      {data.holders.map((holder) => (
+                        <div className="offerRow" key={holder.slug}>
+                          <div className="collectionIdentity">
+                            <img src={assetUrl(holder.avatarUrl)} alt={holder.name} />
+                            <strong>{holder.name}</strong>
+                          </div>
+                          <span>{holder.quantity} items</span>
+                          <span>{holder.share}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </section>
+                ) : null}
+
+                {mode === "traits" ? (
+                  <section className="pagePanel">
+                    <SectionHeader title="Traits" subtitle="Browse traits across the collection" />
+                    <div className="traitSummaryGrid">
+                      {data.traitHighlights.length === 0 ? (
+                        <AmbientEmptyState
+                          compact
+                          variant="rows"
+                          eyebrow="Traits"
+                          title="No traits to display"
+                          copy="Trait highlights will appear here once NFTs in this collection include metadata attributes."
+                        />
+                      ) : null}
+                      {data.traitHighlights.map((trait) => (
+                        <article className="traitSummaryCard" key={trait.type}>
+                          <span className="metaLabel">{trait.type}</span>
+                          {trait.topValues.map((value) => (
+                            <strong key={value}>{value}</strong>
+                          ))}
+                        </article>
+                      ))}
+                    </div>
+                  </section>
+                ) : null}
+
+                {mode === "activity" ? (
+                  <section className="pagePanel">
+                    <SectionHeader title="Activity" subtitle="Collection activity" />
+                    <div className="activityTable">
+                      {data.activities.length === 0 ? (
+                        <AmbientEmptyState
+                          compact
+                          variant="rows"
+                          eyebrow="Activity"
+                          title="No activity yet"
+                          copy="Mint, list, sale, and transfer events for this collection will show up here."
+                        />
+                      ) : null}
+                      {data.activities.map((entry) => (
+                        <div className="activityTableRow" key={entry.id}>
+                          <div>
+                            <strong>{entry.itemName}</strong>
+                            <p>{entry.type}</p>
+                          </div>
+                          <span>{entry.from}</span>
+                          <span>{entry.to}</span>
+                          <span>{entry.priceDisplay}</span>
+                          <span>{entry.ageLabel}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </section>
+                ) : null}
+
+                {mode === "analytics" ? (
+                  data.analytics.length === 0 ? (
+                    <section className="pagePanel">
+                      <AmbientEmptyState
+                        compact
+                        variant="rows"
+                        eyebrow="Analytics"
+                        title="No analytics to display"
+                        copy="As trading and ownership data builds up, this collection will unlock analytics here."
+                      />
+                    </section>
+                  ) : (
+                    <div className="analyticsGrid">
+                      {data.analytics.map((metric) => (
+                        <AnalyticsSparklineCard key={metric.label} metric={metric} />
+                      ))}
+                    </div>
+                  )
+                ) : null}
+
+                {mode === "about" ? (
+                  <section className="pagePanel">
+                    <SectionHeader title="About" subtitle="Collection details" />
+                    <div className="aboutStack">
+                      {data.about.map((paragraph) => (
+                        <p key={paragraph}>{paragraph}</p>
+                      ))}
+                    </div>
+                  </section>
+                ) : null}
+              </div>
+            </div>
+
+            {bootstrap.runtime.liveTrading &&
+            data.collection.showStickyActionBar &&
+            !((mode === "items" || mode === "explore") && visibleItems.length === 0) ? (
               <div className="stickyActionBar">
                 <button className="actionButton secondary" type="button" onClick={() => void connectWallet()}>
                   {account ? "Wallet connected" : "Connect wallet"}
@@ -7297,16 +8369,24 @@ function ItemModalPage() {
     refreshNonce
   );
   const [activeTab, setActiveTab] = useState("Details");
+  const [traitView, setTraitView] = useState<"grid" | "list">("grid");
+  const [mobileArtworkCollapsed, setMobileArtworkCollapsed] = useState(false);
   const [listingComposerOpen, setListingComposerOpen] = useState(false);
   const [listingPriceInput, setListingPriceInput] = useState("1");
   const [listingSubmitting, setListingSubmitting] = useState(false);
   const listingActionLockRef = useRef(false);
+  const itemModalBodyRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     if (state.data) {
       setActiveTab(state.data.defaultTab);
     }
   }, [state.data]);
+
+  useEffect(() => {
+    setMobileArtworkCollapsed(false);
+    itemModalBodyRef.current?.scrollTo({ top: 0 });
+  }, [contract, tokenId]);
 
   if (!contract || !tokenId) {
     return <PageState message="Missing item identifier." />;
@@ -7591,155 +8671,249 @@ function ItemModalPage() {
 
   return (
     <DataState state={state}>
-      {(data) => (
-        <div className="modalRouteFrame">
-          <div className="itemModal">
-            <div className={data.mediaStrip.length > 1 ? "itemModalTopBar" : "itemModalTopBar compact"}>
-              {data.mediaStrip.length > 1 ? (
+      {(data) => {
+        const itemTokenLabel = data.item.tokenId ? `#${data.item.tokenId}` : "";
+        const displayTitle =
+          itemTokenLabel && !data.item.name.includes(itemTokenLabel)
+            ? `${data.item.name} ${itemTokenLabel}`
+            : data.item.name;
+        const railItems = [
+          {
+            key: `${data.item.contractAddress}-${data.item.tokenId}`,
+            href: `/item/reef/${data.item.contractAddress}/${data.item.tokenId}`,
+            imageUrl: data.item.imageUrl,
+            label: displayTitle,
+            active: true
+          },
+          ...data.relatedItems
+            .filter((entry) => entry.imageUrl)
+            .slice(0, 7)
+            .map((entry) => ({
+              key: `${entry.contractAddress}-${entry.tokenId}`,
+              href: `/item/reef/${entry.contractAddress}/${entry.tokenId}`,
+              imageUrl: entry.imageUrl,
+              label:
+                entry.tokenId && !entry.name.includes(`#${entry.tokenId}`)
+                  ? `${entry.name} #${entry.tokenId}`
+                  : entry.name,
+              active: false
+            }))
+        ];
+
+        return (
+          <div className="modalRouteFrame">
+            <div className={mobileArtworkCollapsed ? "itemModal mobileArtCollapsed" : "itemModal"}>
+              <div className="itemModalTopBar">
                 <div className="thumbRail">
-                  <button className="thumbNav" type="button" onClick={() => navigate(data.backHref)}><Icon icon="chevron-left" /></button>
-                  {data.mediaStrip.map((thumb, index) => (
-                    <button key={`${thumb}-${index}`} className={index === 0 ? "thumbButton active" : "thumbButton"} type="button">
-                      <img src={assetUrl(thumb)} alt="" />
+                  <button className="thumbNav" type="button" onClick={() => navigate(data.backHref)} aria-label="Back to collection">
+                    <Icon icon="chevron-left" />
+                  </button>
+                  {railItems.map((thumb) => (
+                    <button
+                      key={thumb.key}
+                      className={thumb.active ? "thumbButton active" : "thumbButton"}
+                      type="button"
+                      onClick={() => {
+                        if (!thumb.active) {
+                          navigate(thumb.href);
+                        }
+                      }}
+                      aria-current={thumb.active ? "page" : undefined}
+                      aria-label={thumb.label}
+                    >
+                      <img src={assetUrl(thumb.imageUrl)} alt={thumb.label} />
                     </button>
                   ))}
-                  <button className="thumbNav" type="button"><Icon icon="chevron-right" /></button>
                 </div>
-              ) : <div />}
-              <button className="closeButton" type="button" onClick={() => navigate(data.closeHref)}><Icon icon="close" /></button>
-            </div>
-
-            <div className="itemModalBody">
-              <div className="mediaColumn">
-                <div className="modalArtworkStage">
-                  <img className="modalArtwork" src={assetUrl(data.item.imageUrl)} alt={data.item.name} />
+                <div className="itemModalTopActions">
+                  <button className="closeButton" type="button" onClick={() => navigate(data.closeHref)} aria-label="Close item view">
+                    <Icon icon="close" />
+                  </button>
                 </div>
               </div>
 
-              <div className="detailsColumn">
-                <div className="titleCluster">
-                  <h1>{data.item.name}</h1>
-                  <div className="identityBar">
-                    <div className="identityRow">
-                      <div className="identityWithAvatar">
-                        <img src={assetUrl(data.collection.avatarUrl)} alt={data.collection.name} />
-                        <strong>{data.collection.name}</strong>
-                        {data.collection.verified ? <OpenSeaBadge className="verifiedBadge small" /> : null}
-                      </div>
-                      <span>{data.ownerLabel}</span>
+              <div
+                ref={itemModalBodyRef}
+                className="itemModalBody"
+                onScroll={(event) => {
+                  const nextCollapsed = event.currentTarget.scrollTop > 36;
+                  setMobileArtworkCollapsed((current) => (current === nextCollapsed ? current : nextCollapsed));
+                }}
+              >
+                <div className="mediaColumn">
+                  <div className="modalArtworkRail">
+                    <div className="modalArtworkStage">
+                      <img className="modalArtwork" src={assetUrl(data.item.imageUrl)} alt={displayTitle} />
                     </div>
-                    <div className="iconRow compact">
-                      <button className="ghostIcon" type="button"><Icon icon="globe" /></button>
-                      <button className="ghostIcon" type="button"><Icon icon="discord" /></button>
-                      <button className="ghostIcon" type="button"><Icon icon="x" /></button>
-                      <button className="ghostIcon" type="button"><Icon icon="copy" /></button>
-                      <button className="ghostIcon" type="button"><Icon icon="heart" /></button>
-                      <button className="ghostIcon" type="button"><Icon icon="more" /></button>
+                    <div className="mobileArtworkSummary" aria-hidden={!mobileArtworkCollapsed}>
+                      <strong>{displayTitle}</strong>
+                      <span>{data.collection.name}</span>
                     </div>
-                  </div>
-                  <div className="badgeRow">
-                    {data.metaBadges.map((badge) => (
-                      <span className="heroBadge" key={badge}>{badge}</span>
-                    ))}
                   </div>
                 </div>
 
-                <div className="buyPanel">
-                  <div className="buyMetrics">
-                    <div>
-                      <span>Top Offer</span>
-                      <strong>{data.buyPanel.topOffer}</strong>
+                <div className="detailsColumn">
+                  <div className="titleCluster">
+                    <h1>{displayTitle}</h1>
+                      <div className="identityBar">
+                        <div className="identityRow itemIdentityMeta">
+                          <div className="identityWithAvatar">
+                            <img src={assetUrl(data.collection.avatarUrl)} alt={data.collection.name} />
+                          <strong>{data.collection.name}</strong>
+                          {data.collection.verified ? <OpenSeaBadge className="verifiedBadge small" /> : null}
+                        </div>
+                        <span className="itemOwnerLabel">{data.ownerLabel}</span>
+                        </div>
+                        <div className="iconRow compact">
+                          <GhostIconButton><Icon icon="globe" /></GhostIconButton>
+                          <GhostIconButton><Icon icon="discord" /></GhostIconButton>
+                          <GhostIconButton><Icon icon="x" /></GhostIconButton>
+                          <CopyFeedbackButton
+                            className="ghostIcon"
+                            value={`${bootstrap.config.services.webBaseUrl}/item/reef/${contract}/${tokenId}`}
+                            label="Item link"
+                            ariaLabel="Copy item link"
+                            successMessage="Item link copied."
+                          />
+                          <GhostIconButton><Icon icon="heart" /></GhostIconButton>
+                          <GhostIconButton><Icon icon="more" /></GhostIconButton>
+                        </div>
+                      </div>
+                      <div className="badgeRow">
+                        {data.metaBadges.map((badge) => (
+                          <HeroBadgePill key={badge}>{badge}</HeroBadgePill>
+                        ))}
+                      </div>
                     </div>
-                    <div>
-                      <span>Collection Floor</span>
-                      <strong>{data.buyPanel.collectionFloor}</strong>
+
+                  <div className="buyPanel">
+                    <div className="buyMetrics">
+                      <div>
+                        <span>Top Offer</span>
+                        <strong>{data.buyPanel.topOffer}</strong>
+                      </div>
+                      <div>
+                        <span>Collection Floor</span>
+                        <strong>{data.buyPanel.collectionFloor}</strong>
+                      </div>
+                      <div>
+                        <span>Rarity</span>
+                        <strong>{data.buyPanel.rarity}</strong>
+                      </div>
+                      <div>
+                        <span>Last Sale</span>
+                        <strong>{data.buyPanel.lastSale}</strong>
+                      </div>
                     </div>
-                    <div>
-                      <span>Rarity</span>
-                      <strong>{data.buyPanel.rarity}</strong>
+                    <div className="priceCluster">
+                      <span>Buy For</span>
+                      <strong>{data.buyPanel.price}</strong>
+                      <small>{data.buyPanel.usd}</small>
                     </div>
-                    <div>
-                      <span>Last Sale</span>
-                      <strong>{data.buyPanel.lastSale}</strong>
-                    </div>
+                    {data.liveTradingAvailable ? (
+                      <button
+                        className={
+                          !account
+                            ? "primaryCta fullWidth"
+                            : data.item.listed && sameAddress(account, data.item.seller)
+                            ? "primaryCta fullWidth danger"
+                            : data.item.listed
+                              ? "primaryCta fullWidth success"
+                              : "primaryCta fullWidth"
+                        }
+                        type="button"
+                        disabled={
+                          listingSubmitting ||
+                          (!!account &&
+                            !data.item.listed &&
+                            !sameAddress(account, data.item.ownerAddress))
+                        }
+                        onClick={() => {
+                          if (listingSubmitting) {
+                            return;
+                          }
+                          if (!account) {
+                            void connectWallet();
+                            return;
+                          }
+                          if (data.item.listed && sameAddress(account, data.item.seller)) {
+                            void handleCancelListing(data);
+                            return;
+                          }
+                          if (data.item.listed) {
+                            void handleBuyItem(data);
+                            return;
+                          }
+                          if (!sameAddress(account, data.item.ownerAddress)) {
+                            setStatus("Only the current owner can create a listing for this NFT.");
+                            return;
+                          }
+                          setListingPriceInput("1");
+                          setListingComposerOpen(true);
+                        }}
+                      >
+                        {listingSubmitting
+                          ? "Waiting for wallet..."
+                          : !account
+                          ? "Connect wallet"
+                          : data.item.listed && sameAddress(account, data.item.seller)
+                            ? "Cancel listing"
+                            : data.item.listed
+                              ? "Buy now"
+                              : sameAddress(account, data.item.ownerAddress)
+                                ? "List item"
+                                : "Not for sale"}
+                      </button>
+                    ) : null}
                   </div>
-                  <div className="priceCluster">
-                    <span>Buy For</span>
-                    <strong>{data.buyPanel.price}</strong>
-                    <small>{data.buyPanel.usd}</small>
-                  </div>
-                  {data.liveTradingAvailable ? (
-                    <button
-                      className="primaryCta fullWidth"
-                      type="button"
-                      disabled={
-                        listingSubmitting ||
-                        (!!account &&
-                          !data.item.listed &&
-                          !sameAddress(account, data.item.ownerAddress))
-                      }
-                      onClick={() => {
-                        if (listingSubmitting) {
-                          return;
-                        }
-                        if (!account) {
-                          void connectWallet();
-                          return;
-                        }
-                        if (data.item.listed && sameAddress(account, data.item.seller)) {
-                          void handleCancelListing(data);
-                          return;
-                        }
-                        if (data.item.listed) {
-                          void handleBuyItem(data);
-                          return;
-                        }
-                        if (!sameAddress(account, data.item.ownerAddress)) {
-                          setStatus("Only the current owner can create a listing for this NFT.");
-                          return;
-                        }
-                        setListingPriceInput("1");
-                        setListingComposerOpen(true);
-                      }}
-                    >
-                      {listingSubmitting
-                        ? "Waiting for wallet..."
-                        : !account
-                        ? "Connect wallet"
-                        : data.item.listed && sameAddress(account, data.item.seller)
-                          ? "Cancel listing"
-                          : data.item.listed
-                            ? "Buy now"
-                            : sameAddress(account, data.item.ownerAddress)
-                              ? "List item"
-                              : "Not for sale"}
-                    </button>
-                  ) : null}
-                </div>
 
                 <div className="detailTabs">
                   {data.detailTabs.map((tab) => (
-                    <button
+                    <DetailTabButton
                       key={tab}
-                      className={activeTab === tab ? "detailTab active" : "detailTab"}
-                      type="button"
+                      active={activeTab === tab}
                       onClick={() => setActiveTab(tab)}
                     >
                       {tab}
-                    </button>
+                    </DetailTabButton>
                   ))}
                 </div>
 
                 {activeTab === "Details" ? (
-                  <section className="detailsAccordion">
+                  <section className="detailsAccordion detailsAccordionTraits">
                     <div className="accordionHeader">
                       <div className="collectionIdentity">
                         <div className="diamondMarker" />
                         <strong>Traits</strong>
                       </div>
-                      <Icon icon="chevron-right" className="accordionChevron" />
+                      <button className="traitCollapseButton" type="button" aria-label="Traits expanded">
+                        <Icon icon="chevron-down" className="accordionChevron expanded" />
+                      </button>
                     </div>
-                    <div className="traitList">
+                    <div className="traitsSectionMeta">
+                      <span className="traitsSectionCount">Traits {data.item.traits.length}</span>
+                      <div className="traitsViewToggle" aria-label="Trait layout">
+                        <button
+                          className={traitView === "grid" ? "traitsViewButton active" : "traitsViewButton"}
+                          type="button"
+                          onClick={() => setTraitView("grid")}
+                          aria-pressed={traitView === "grid"}
+                          aria-label="Grid view"
+                        >
+                          <Icon icon="view-grid" />
+                        </button>
+                        <button
+                          className={traitView === "list" ? "traitsViewButton active" : "traitsViewButton"}
+                          type="button"
+                          onClick={() => setTraitView("list")}
+                          aria-pressed={traitView === "list"}
+                          aria-label="List view"
+                        >
+                          <Icon icon="list" />
+                        </button>
+                      </div>
+                    </div>
+                    <div className={traitView === "list" ? "traitList list" : "traitList"}>
                       {data.item.traits.length === 0 ? (
                         <AmbientEmptyState
                           compact
@@ -7753,7 +8927,12 @@ function ItemModalPage() {
                         <article className="traitPill" key={`${trait.type}-${trait.value}`}>
                           <span>{trait.type}</span>
                           <strong>{trait.value}</strong>
-                          <small>{trait.rarity}</small>
+                          <div className="traitPillFooter">
+                            <span className={`traitStatChip ${trait.tone ?? "neutral"}`}>
+                              {formatTraitCount(trait.count ?? 1)} {formatTraitPercent(trait.percent ?? 100)}
+                            </span>
+                            <small>{trait.floorDisplay ?? data.buyPanel.collectionFloor}</small>
+                          </div>
                         </article>
                       ))}
                     </div>
@@ -7853,7 +9032,8 @@ function ItemModalPage() {
             ) : null}
           </div>
         </div>
-      )}
+        );
+      }}
     </DataState>
   );
 }
@@ -8118,6 +9298,10 @@ function CreatorPage() {
         const showToolbar = activeTab !== "portfolio";
         const showViewControls = ["galleries", "items", "listings"].includes(activeTab);
         const showProfileSidebar = activeTab === "items";
+        const hasProfileItemFilters = query.trim().length > 0 || statusFilter !== "all" || collectionFilter !== "all";
+        const hideProfileActionDock =
+          (activeTab === "items" && sortedItems.length === 0) ||
+          (activeTab === "listings" && sortedListings.length === 0);
         const filterCollections = profileData.galleries
           .filter((gallery) => matchesCollectionQuery(gallery.collectionName, gallery.creatorName))
           .sort((left, right) => left.collectionName.localeCompare(right.collectionName));
@@ -8133,37 +9317,31 @@ function CreatorPage() {
           <div className="darkPage profilePage">
             <ProfileHero
               profile={profileData.profile}
+              profileAddress={derivedProfileAddress ?? profileData.profile.slug}
               profileLabel={profileLabel}
               profileTag={profileTag}
               usdValue={usdValue}
               nftPercent={nftPercent}
               tokenPercent={tokenPercent}
+              avatarSrc={isOwnProfile ? currentUser?.avatarUri || profileData.profile.avatarUrl : profileData.profile.avatarUrl}
               titleActions={
                 <>
-                  <button
+                  <CopyFeedbackButton
                     className="ghostIcon"
-                    type="button"
-                    aria-label="Copy address"
-                    onClick={() => {
-                      const value = derivedProfileAddress ?? profileData.profile.slug;
-                      void copyText(value)
-                        .then(() => setStatus("Profile id copied."))
-                        .catch((error) => {
-                          setStatus(error instanceof Error ? error.message : "Copy failed.");
-                        });
-                    }}
-                  >
-                    <Icon icon="copy" />
-                  </button>
-                  <button className="ghostIcon" type="button" aria-label="More actions">
+                    value={derivedProfileAddress ?? profileData.profile.slug}
+                    label="Profile ID"
+                    ariaLabel="Copy profile address"
+                    successMessage="Profile id copied."
+                  />
+                  <GhostIconButton aria-label="More actions">
                     <Icon icon="more" />
-                  </button>
+                  </GhostIconButton>
                 </>
               }
               statAction={
-                <button className="ghostIcon enlarge" type="button" aria-label="Profile actions">
+                <GhostIconButton className="enlarge" aria-label="Profile actions">
                   <Icon icon="view-columns" />
-                </button>
+                </GhostIconButton>
               }
             />
 
@@ -8176,9 +9354,9 @@ function CreatorPage() {
             {showDefaultToolbar ? (
               <div className="collectionToolbar">
                 <div className="chipRow">
-                  <button className="iconChip" type="button" aria-label="Filters">
+                  <IconChipButton aria-label="Filters">
                     <Icon icon="filter" />
-                  </button>
+                  </IconChipButton>
                   <label className="inlineSearch">
                     <Icon icon="search" />
                     <input
@@ -8195,24 +9373,24 @@ function CreatorPage() {
                       Create collection
                     </button>
                   ) : null}
-                  <button className="iconChip" type="button" onClick={cycleSort}>
+                  <IconChipButton onClick={cycleSort}>
                     {sortLabel}
                     <Icon icon="chevron-right" className="microIcon" />
-                  </button>
+                  </IconChipButton>
                   {showViewControls ? (
                     <>
-                      <button className={view === "grid" ? "iconChip active" : "iconChip"} type="button" onClick={() => updateParams(params, setParams, { view: "grid" })}>
+                      <IconChipButton active={view === "grid"} onClick={() => updateParams(params, setParams, { view: "grid" })}>
                         <Icon icon="view-grid" />
-                      </button>
-                      <button className={view === "columns" ? "iconChip active" : "iconChip"} type="button" onClick={() => updateParams(params, setParams, { view: "columns" })}>
+                      </IconChipButton>
+                      <IconChipButton active={view === "columns"} onClick={() => updateParams(params, setParams, { view: "columns" })}>
                         <Icon icon="view-columns" />
-                      </button>
-                      <button className={view === "grid-alt" ? "iconChip active" : "iconChip"} type="button" onClick={() => updateParams(params, setParams, { view: "grid-alt" })}>
+                      </IconChipButton>
+                      <IconChipButton active={view === "grid-alt"} onClick={() => updateParams(params, setParams, { view: "grid-alt" })}>
                         <Icon icon="grid" />
-                      </button>
-                      <button className={view === "list" ? "iconChip active" : "iconChip"} type="button" onClick={() => updateParams(params, setParams, { view: "list" })}>
+                      </IconChipButton>
+                      <IconChipButton active={view === "list"} onClick={() => updateParams(params, setParams, { view: "list" })}>
                         <Icon icon="list" />
-                      </button>
+                      </IconChipButton>
                     </>
                   ) : null}
                 </div>
@@ -8239,14 +9417,13 @@ function CreatorPage() {
                         <div className="profileFilterSectionBody">
                           <div className="profileFilterChipGrid">
                             {itemStatusOptions.map((option) => (
-                              <button
+                              <FilterChipButton
                                 key={option.key}
-                                className={statusFilter === option.key ? "profileFilterChip active" : "profileFilterChip"}
-                                type="button"
+                                active={statusFilter === option.key}
                                 onClick={() => updateParams(params, setParams, { status: option.key })}
                               >
                                 {option.label}
-                              </button>
+                              </FilterChipButton>
                             ))}
                           </div>
                         </div>
@@ -8268,9 +9445,9 @@ function CreatorPage() {
                       {chainsSectionOpen ? (
                         <div className="profileFilterSectionBody">
                           <div className="profileFilterChipGrid">
-                            <button className="profileFilterChip active" type="button">
+                            <FilterChipButton active>
                               Reef
-                            </button>
+                            </FilterChipButton>
                           </div>
                         </div>
                       ) : null}
@@ -8333,14 +9510,14 @@ function CreatorPage() {
                 <div className="profileWorkspaceMain">
                   <div className="profileWorkspaceToolbar">
                     <div className="profileWorkspaceToolbarLead">
-                      <button
-                        className="iconChip profileRailToggle"
+                      <IconChipButton
+                        className="profileRailToggle"
                         type="button"
                         aria-label={profileRailCollapsed ? "Open filters" : "Collapse filters"}
                         onClick={() => updateParams(params, setParams, { profileRail: profileRailCollapsed ? "open" : "collapsed" })}
                       >
                         <Icon icon={profileRailCollapsed ? "chevron-right" : "collapse-left"} />
-                      </button>
+                      </IconChipButton>
                       <label className="inlineSearch profileInlineSearch">
                         <Icon icon="search" />
                         <input
@@ -8352,25 +9529,25 @@ function CreatorPage() {
                     </div>
 
                     <div className="profileWorkspaceTools">
-                      <button className="iconChip" type="button" onClick={cycleSort}>
+                      <IconChipButton onClick={cycleSort}>
                         {sortLabel}
                         <Icon icon="chevron-right" className="microIcon" />
-                      </button>
-                      <button className="iconChip" type="button" aria-label="Settings">
+                      </IconChipButton>
+                      <IconChipButton aria-label="Settings">
                         <Icon icon="settings" />
-                      </button>
-                      <button className={view === "grid" ? "iconChip active" : "iconChip"} type="button" onClick={() => updateParams(params, setParams, { view: "grid" })}>
+                      </IconChipButton>
+                      <IconChipButton active={view === "grid"} onClick={() => updateParams(params, setParams, { view: "grid" })}>
                         <Icon icon="view-grid" />
-                      </button>
-                      <button className={view === "columns" ? "iconChip active" : "iconChip"} type="button" onClick={() => updateParams(params, setParams, { view: "columns" })}>
+                      </IconChipButton>
+                      <IconChipButton active={view === "columns"} onClick={() => updateParams(params, setParams, { view: "columns" })}>
                         <Icon icon="view-columns" />
-                      </button>
-                      <button className={view === "grid-alt" ? "iconChip active" : "iconChip"} type="button" onClick={() => updateParams(params, setParams, { view: "grid-alt" })}>
+                      </IconChipButton>
+                      <IconChipButton active={view === "grid-alt"} onClick={() => updateParams(params, setParams, { view: "grid-alt" })}>
                         <Icon icon="grid" />
-                      </button>
-                      <button className={view === "list" ? "iconChip active" : "iconChip"} type="button" onClick={() => updateParams(params, setParams, { view: "list" })}>
+                      </IconChipButton>
+                      <IconChipButton active={view === "list"} onClick={() => updateParams(params, setParams, { view: "list" })}>
                         <Icon icon="list" />
-                      </button>
+                      </IconChipButton>
                     </div>
                   </div>
 
@@ -8384,9 +9561,35 @@ function CreatorPage() {
                   <ProfileItemsTab
                     items={sortedItems}
                     view={view}
-                    emptyArtwork={buildProfileEmptyArtwork("items")}
+                    emptyEyebrow="Items"
                     emptyTitle="No items found"
-                    emptyCopy="Discover new collections on OpenSea"
+                    emptyCopy={
+                      hasProfileItemFilters
+                        ? "Try clearing the current search or filters to bring your collectibles back into view."
+                        : isOwnProfile
+                          ? "Mint into one of your collections or collect an NFT, and your items will show up here."
+                          : "This wallet does not have any visible items yet."
+                    }
+                    emptyActions={
+                      <>
+                        {hasProfileItemFilters ? (
+                          <button
+                            className="actionButton muted"
+                            type="button"
+                            onClick={() => updateParams(params, setParams, { q: "", status: "all", collection: "all" })}
+                          >
+                            Clear filters
+                          </button>
+                        ) : null}
+                        <button
+                          className="actionButton secondary"
+                          type="button"
+                          onClick={() => navigate(isOwnProfile ? "/create" : "/collections")}
+                        >
+                          {isOwnProfile ? "Create NFT" : "Explore collections"}
+                        </button>
+                      </>
+                    }
                     renderGridCard={(item) => <ItemGridCard key={item.id} item={item} />}
                   />
                 </div>
@@ -8416,6 +9619,31 @@ function CreatorPage() {
             {activeTab === "listings" ? (
               <ProfileListingsTab
                 items={sortedListings}
+                view={view}
+                emptyActions={
+                  <>
+                    {query.trim().length > 0 ? (
+                      <button
+                        className="actionButton muted"
+                        type="button"
+                        onClick={() => updateParams(params, setParams, { q: "" })}
+                      >
+                        Clear search
+                      </button>
+                    ) : null}
+                    <button
+                      className="actionButton secondary"
+                      type="button"
+                      onClick={() =>
+                        isOwnProfile && profileData.items.length === 0
+                          ? navigate("/create")
+                          : updateParams(params, setParams, { tab: "items" })
+                      }
+                    >
+                      {isOwnProfile && profileData.items.length === 0 ? "Create NFT" : "View items"}
+                    </button>
+                  </>
+                }
                 renderGridCard={(item) => <ItemGridCard key={item.id} item={item} />}
               />
             ) : null}
@@ -8434,34 +9662,36 @@ function CreatorPage() {
               />
             ) : null}
 
-            <div className="profileActionDock">
-              <div className="profileActionGroup">
-                <button className="actionButton secondary" type="button" onClick={() => navigate("/create")}>
-                  List items
-                </button>
+            {!hideProfileActionDock ? (
+              <div className="profileActionDock">
+                <div className="profileActionGroup">
+                  <button className="actionButton secondary" type="button" onClick={() => navigate("/create")}>
+                    List items
+                  </button>
+                  <button
+                    className="actionButton muted"
+                    type="button"
+                    onClick={() => updateParams(params, setParams, { tab: "listings" })}
+                  >
+                    Cancel listings
+                  </button>
+                  <button
+                    className="actionButton muted"
+                    type="button"
+                    onClick={() => updateParams(params, setParams, { tab: "offers" })}
+                  >
+                    Accept offers
+                  </button>
+                </div>
                 <button
-                  className="actionButton muted"
+                  className="actionButton secondary"
                   type="button"
-                  onClick={() => updateParams(params, setParams, { tab: "listings" })}
+                  onClick={() => navigate(isOwnProfile ? (activeTab === "created" ? "/create/collection" : "/create") : "/collections")}
                 >
-                  Cancel listings
-                </button>
-                <button
-                  className="actionButton muted"
-                  type="button"
-                  onClick={() => updateParams(params, setParams, { tab: "offers" })}
-                >
-                  Accept offers
+                  {isOwnProfile ? (activeTab === "created" ? "Create collection" : "Create NFT") : "Create gallery"}
                 </button>
               </div>
-              <button
-                className="actionButton secondary"
-                type="button"
-                onClick={() => navigate(isOwnProfile ? (activeTab === "created" ? "/create/collection" : "/create") : "/collections")}
-              >
-                {isOwnProfile ? (activeTab === "created" ? "Create collection" : "Create NFT") : "Create gallery"}
-              </button>
-            </div>
+            ) : null}
           </div>
         );
       }}
@@ -8497,14 +9727,17 @@ function DiscoverCollectionTableRow({
           {collection.verified ? <OpenSeaBadge className="verifiedBadge small" /> : null}
         </div>
       </div>
-      <span>{collection.tableMetrics.floor}</span>
-      <span className={collection.tableMetrics.change.startsWith("-") ? "negative" : "positive"}>
+      <span data-label="Floor price">{collection.tableMetrics.floor}</span>
+      <span
+        data-label="1D change"
+        className={collection.tableMetrics.change.startsWith("-") ? "negative" : "positive"}
+      >
         {collection.tableMetrics.change}
       </span>
-      <span>{collection.tableMetrics.topOffer}</span>
-      <span>{collection.tableMetrics.volume}</span>
-      <span>{collection.tableMetrics.sales}</span>
-      <span>{collection.tableMetrics.owners}</span>
+      <span data-label="Top offer">{collection.tableMetrics.topOffer}</span>
+      <span data-label="1D vol">{collection.tableMetrics.volume}</span>
+      <span data-label="1D sales">{collection.tableMetrics.sales}</span>
+      <span data-label="Owners">{collection.tableMetrics.owners}</span>
     </NavLink>
   );
 }
@@ -8838,16 +10071,28 @@ function ItemActivityCard({ entry }: { entry: ActivityRecord }) {
 }
 
 function ItemGridCard({ item }: { item: ItemRecord }) {
+  const isListed = item.listed && item.currentPriceRaw !== "0";
+  const hoverActionLabel = isListed ? "Buy now" : "View item";
+  const hoverActionValue = isListed ? item.currentPriceDisplay : item.rankDisplay ?? `#${item.tokenId}`;
   return (
     <NavLink to={`/item/reef/${item.contractAddress}/${item.tokenId}`} className="itemCard">
-      <img src={assetUrl(item.imageUrl)} alt={item.name} />
+      <div className="itemCardMedia">
+        <img src={assetUrl(item.imageUrl)} alt={item.name} />
+        <span className="itemCardQuickAction" aria-hidden="true">
+          <Icon icon="plus" />
+        </span>
+      </div>
       <div className="itemCardBody">
         <strong>{item.name}</strong>
         <p>{item.collectionName}</p>
         <div className="itemCardMeta">
-          <span>{item.currentPriceDisplay}</span>
-          <small>{item.highestOfferDisplay}</small>
+          <span>{isListed ? item.currentPriceDisplay : "Not listed"}</span>
+          <small>{item.rankDisplay ?? item.highestOfferDisplay}</small>
         </div>
+      </div>
+      <div className={isListed ? "itemCardHoverBar listed" : "itemCardHoverBar"}>
+        <strong>{hoverActionLabel}</strong>
+        <span>{hoverActionValue}</span>
       </div>
     </NavLink>
   );

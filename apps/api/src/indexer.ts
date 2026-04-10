@@ -252,6 +252,21 @@ async function syncMarketplaceEvents() {
       const priceRaw = String(parsed.args.price);
 
       await markListingSold({ listingId, buyer });
+      await updateNftOwner({
+        collectionAddress,
+        tokenId,
+        ownerAddress: buyer
+      });
+      await insertTransfer({
+        txHash: log.transactionHash,
+        logIndex: Number(log.index),
+        collectionAddress,
+        tokenId,
+        fromAddress: seller,
+        toAddress: buyer,
+        eventType: "transfer",
+        blockNumber: Number(log.blockNumber)
+      });
       await insertSale({
         txHash: log.transactionHash,
         listingId,

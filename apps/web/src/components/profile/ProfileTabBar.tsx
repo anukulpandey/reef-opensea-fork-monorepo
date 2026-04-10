@@ -1,3 +1,5 @@
+import { SurfaceTabButton } from "../ui/ControlPrimitives";
+
 type ProfileTabBarProps = {
   tabs: Array<{ key: string; label: string }>;
   activeTab: string;
@@ -8,14 +10,13 @@ export default function ProfileTabBar({ tabs, activeTab, onSelect }: ProfileTabB
   return (
     <div className="profileTabBar">
       {tabs.map((tab) => (
-        <button
+        <SurfaceTabButton
           key={tab.key}
-          className={activeTab === tab.key ? "tabLink active" : "tabLink"}
-          type="button"
+          active={activeTab === tab.key}
           onClick={() => onSelect(tab.key)}
         >
           {tab.label}
-        </button>
+        </SurfaceTabButton>
       ))}
     </div>
   );
